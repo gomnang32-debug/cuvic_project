@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>학교 등록 요청 · BUILD 대학교</title>
+<style>
+  :root { --bg:#F3F4F6; --fg:#0E1116; --muted:#5B6270; --line:#E3E6EB; --card:#fff; --blue:#1D4ED8; --orange:#C2410C; color-scheme: light; font-family: 'IBM Plex Sans KR','Malgun Gothic',system-ui,sans-serif; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#0B0D11; --fg:#E8EAED; --muted:#9AA1AC; --line:#262C35; --card:#14181F; --blue:#6B93FF; --orange:#FB8A4C; color-scheme: dark; } }
+  body { margin: 0; background: var(--bg); color: var(--fg); }
+  .wrap { max-width: 860px; margin: 0 auto; padding: 32px 20px; }
+  h1 { font-size: 24px; margin: 0 0 6px; }
+  p { color: var(--muted); margin: 0 0 20px; font-size: 14px; line-height: 1.6; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 8px 20px; }
+  .row { display: grid; grid-template-columns: minmax(0,1fr) auto; gap: 12px; align-items: center; padding: 14px 0; border-bottom: 1px solid var(--line); }
+  .row:last-child { border-bottom: 0; }
+  .nm { font-weight: 700; font-size: 16px; }
+  .meta { color: var(--muted); font-size: 13px; }
+  .act { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+  button { height: 36px; padding: 0 12px; border-radius: 8px; border: 1px solid var(--line); background: var(--card); color: var(--fg); font: inherit; font-size: 13px; cursor: pointer; }
+  button.ok { background: var(--blue); color: #fff; border-color: var(--blue); }
+  button.no { color: var(--orange); border-color: var(--orange); }
+  input { height: 36px; border: 1px solid var(--line); border-radius: 8px; padding: 0 10px; background: var(--card); color: var(--fg); font: inherit; font-size: 13px; width: 150px; }
+  .st { font-size: 12px; padding: 2px 8px; border-radius: 6px; background: var(--line); margin-left: 6px; font-weight: 400; }
+  .empty { padding: 24px 0; color: var(--muted); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>학교 등록 요청</h1>
+  <p>목록에 없는 학교로 가입한 사람들의 요청이에요. 승인 전까지는 공부 기록만 쌓이고 학교 대항전에는 점수가 더해지지 않아요.<br>같은 학교를 3명이 요청하면 자동으로 승인돼요. 오타나 줄임말이면 '합치기'로 기존 학교에 넣어 주세요.</p>
+  <div class="card" id="list"></div>
+</div>
+<script>
+  const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
+  const KEY = new URLSearchParams(location.search).get('key') || '';
+  const H = { 'content-type': 'application/json', 'x-admin-key': KEY };
+  const ST = { pending: '대기', approved: '승인됨', rejected: '거절됨', merged: '합침' };
+  async function post(path, body) {
+    const r = await fetch(path, { method: 'POST', headers: H, body: JSON.stringify(body) });
+    const j = await r.json();
+    if (!r.ok) alert(j.error || '실패했어요');
+    load();
+  }
+  async function load() {
+    const { requests } = await (await fetch('/api/admin/requests', { headers: H })).json();
+    document.getElementById('list').innerHTML = requests.length ? requests.map((r) => `
+      <div class="row">
+        <div><div class="nm">${esc(r.name)}<span class="st">${ST[r.status] || r.status}${r.into ? ' → ' + esc(r.into) : ''}</span></div>
+        <div class="meta">요청 ${r.count}명 · ${new Date(r.ts).toLocaleString('ko-KR')}</div></div>
+        ${r.status === 'pending' ? `<div class="act">
+          <button class="ok" data-a="approve" data-k="${esc(r.key)}">새 학교로 승인</button>
+          <input placeholder="합칠 학교 (예: 고려대)" data-in="${esc(r.key)}"><button data-a="merge" data-k="${esc(r.key)}">합치기</button>
+          <button class="no" data-a="reject" data-k="${esc(r.key)}">거절</button></div>` : '<div></div>'}
+      </div>`).join('') : '<div class="empty">요청이 없어요.</div>';
+    document.querySelectorAll('[data-a]').forEach((b) => (b.onclick = () => {
+      const key = b.dataset.k;
+      if (b.dataset.a === 'merge') {
+        const into = document.querySelector(`[data-in="${CSS.escape(key)}"]`).value.trim();
+        if (!into) return alert('합칠 학교 이름을 적어 주세요');
+        post('/api/admin/merge', { key, into });
+      } else post('/api/admin/' + b.dataset.a, { key });
+    }));
+  }
+  load();
+</script>
+</body>
+</html>

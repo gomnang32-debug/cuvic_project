@@ -1,0 +1,305 @@
+// BUILD 대학교 — 학교 대항전 서버 (Node 18+, 외부 패키지 없음)
+//   실행:  node server/server.js        (기본 포트 8787)
+//   옵션:  --lan(같은 와이파이 친구와 대결)  --reset(모든 점수·가입 기록 지우고 시작)
+//          PORT=8787  DEMO=0(데모 학교 끄기)
+//   사이트:  http://localhost:8787   (공부 타이머 · 내 기록 · 대항전 · 캠퍼스)
+//   학교 등록 요청 관리: http://localhost:8787/admin  (이 PC에서만, 또는 ADMIN_KEY 설정 시 /admin?key=…)
+//   인터넷 배포: HOST=0.0.0.0, PORT=(호스팅이 정함), DATA_DIR=(영구 디스크 경로), ADMIN_KEY=(관리 비밀번호)
+import http from 'node:http';
+import fs from 'node:fs';
+import path from 'node:path';
+import crypto from 'node:crypto';
+import { fileURLToPath } from 'node:url';
+import { buildLeague, ranked, userScore, SCHOOLS, DEPTS } from '../extension/lib/sim.js';
+import { dateKey } from '../extension/lib/util.js';
+import { resolveSchool, norm } from '../extension/lib/schools.js';
+
+const DIR = path.dirname(fileURLToPath(import.meta.url));
+const PORT = Number(process.env.PORT || 8787);
+const HOST = process.env.HOST || (process.argv.includes('--lan') ? '0.0.0.0' : '127.0.0.1');
+const DEMO = process.env.DEMO !== '0';
+const DB_FILE = path.join(process.env.DATA_DIR || path.join(DIR, 'data'), 'db.json');
+const ADMIN_KEY = process.env.ADMIN_KEY || '';
+const ROOT = path.join(DIR, '..');
+const STATIC = [
+  // [URL 접두어, 실제 폴더]  — 사이트는 확장 프로그램과 같은 라이브러리·스타일을 그대로 씀
+  ['/app/', path.join(DIR, 'public', 'app')],
+  ['/lib/', path.join(ROOT, 'extension', 'lib')],
+  ['/styles/', path.join(ROOT, 'extension', 'styles')],
+  ['/icons/', path.join(ROOT, 'extension', 'icons')],
+];
+const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.png': 'image/png', '.svg': 'image/svg+xml', '.json': 'application/json; charset=utf-8', '.ico': 'image/x-icon' };
+
+// ---------- 저장소 (JSON 파일) ----------
+const EMPTY = () => ({ users: {}, days: {}, events: {}, ranks: {}, schools: { approved: {}, requests: {} } });
+let db = EMPTY();
+if (process.argv.includes('--reset')) {
+  fs.mkdirSync(path.dirname(DB_FILE), { recursive: true });
+  fs.writeFileSync(DB_FILE, JSON.stringify(db));
+  console.log('  기록을 모두 지웠어요 (--reset)');
+}
+try {
+  db = { ...db, ...JSON.parse(fs.readFileSync(DB_FILE, 'utf8')) };
+} catch {}
+db.schools ||= { approved: {}, requests: {} };
+let saveTimer = null;
+function save() {
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(() => {
+    fs.mkdirSync(path.dirname(DB_FILE), { recursive: true });
+    fs.writeFileSync(DB_FILE, JSON.stringify(db));
+  }, 500);
+}
+
+const clean = (s, n = 30) => String(s ?? '').replace(/[<>]/g, '').trim().slice(0, n);
+const AUTO_APPROVE = 3; // 같은 학교를 3명이 요청하면 자동 승인
+
+// ---------- 학교 확인 ----------
+/** 목록에 있으면 공식 이름, 승인된 학교면 그 이름, 아니면 입력 그대로 */
+function canonicalSchool(input) {
+  const name = clean(input);
+  const hit = resolveSchool(name);
+  if (hit) return hit;
+  const ap = Object.keys(db.schools.approved).find((n) => norm(n) === norm(name));
+  return ap || name;
+}
+function schoolStatus(name) {
+  if (resolveSchool(name) || db.schools.approved[name]) return 'ok';
+  const rq = db.schools.requests[norm(name)];
+  return rq?.status === 'rejected' ? 'rejected' : 'pending';
+}
+function requestSchool(name, userId) {
+  if (schoolStatus(name) === 'ok') return;
+  const k = norm(name);
+  const rq = (db.schools.requests[k] ||= { name, users: [], ts: Date.now(), status: 'pending' });
+  if (!rq.users.includes(userId)) rq.users.push(userId);
+  if (rq.status === 'pending' && rq.users.length >= AUTO_APPROVE) approveSchool(k, '사용자 3명 요청');
+}
+function approveSchool(k, by) {
+  const rq = db.schools.requests[k];
+  if (!rq) return;
+  rq.status = 'approved';
+  db.schools.approved[rq.name] = { by, ts: Date.now() };
+}
+
+const STUDYING_TTL = 2.5 * 60 * 1000; // 2.5분 동안 소식 없으면 '공부 중'에서 빠짐
+
+function realUsers(date, now) {
+  const day = db.days[date] || {};
+  return Object.entries(day)
+    .filter(([id]) => db.users[id] && db.users[id].ranking !== false && schoolStatus(db.users[id].school) === 'ok')
+    .map(([id, d]) => {
+      const u = db.users[id];
+      return { id, school: u.school, dept: u.dept, nickname: u.nickname, focusSec: d.focusSec, score: userScore(d.focusSec, d.combos), studying: d.studying && now - d.lastSeen < STUDYING_TTL };
+    });
+}
+
+function pushEvent(date, school, text) {
+  (db.events[date] ||= []).unshift({ t: Date.now(), school, text });
+  db.events[date].length = Math.min(db.events[date].length, 50);
+}
+
+function league(date, q = {}) {
+  const now = Date.now();
+  const u = q.userId && db.users[q.userId];
+  const school = u ? u.school : q.school && canonicalSchool(q.school);
+  const status = school ? schoolStatus(school) : null;
+  const lg = buildLeague({ date, now, demo: DEMO, real: realUsers(date, now), school: status === 'ok' ? school : undefined, dept: u ? u.dept : q.dept, userId: q.userId, events: db.events[date] || [] });
+  return { ...lg, me: school ? { school, schoolStatus: status } : null };
+}
+
+/** 순위가 오른 학교가 있으면 '부쉈다' 소식 */
+function checkOvertakes(date) {
+  const r = ranked(league(date).schools);
+  const prev = db.ranks[date] || {};
+  const realSchools = new Set(realUsers(date, Date.now()).map((u) => u.school));
+  for (const s of r) {
+    const before = prev[s.name];
+    if (before && s.rank < before && realSchools.has(s.name)) {
+      const beaten = r[s.rank]; // 바로 아래로 밀린 학교
+      pushEvent(date, s.name, `${beaten ? beaten.name + ' 벽을 부수고 ' : ''}${s.rank}위로 올라섰어요`);
+    }
+  }
+  db.ranks = { [date]: Object.fromEntries(r.map((s) => [s.name, s.rank])) };
+}
+
+// ---------- HTTP ----------
+function sendJSON(res, code, obj) {
+  res.writeHead(code, {
+    'content-type': 'application/json; charset=utf-8',
+    'access-control-allow-origin': '*',
+    'access-control-allow-headers': 'content-type',
+    'access-control-allow-methods': 'GET,POST,OPTIONS',
+  });
+  res.end(JSON.stringify(obj));
+}
+function body(req) {
+  return new Promise((resolve) => {
+    let s = '';
+    req.on('data', (c) => { s += c; if (s.length > 1e5) req.destroy(); });
+    req.on('end', () => { try { resolve(JSON.parse(s || '{}')); } catch { resolve({}); } });
+  });
+}
+function auth(b) {
+  const u = db.users[b.userId];
+  return u && u.token === b.token ? u : null;
+}
+
+const routes = {
+  'GET /api/health': () => ({ ok: true, demo: DEMO, users: Object.keys(db.users).length }),
+  'GET /api/schools': () => ({ schools: SCHOOLS, depts: DEPTS }),
+
+  'POST /api/register': (b) => {
+    const school = canonicalSchool(b.school), dept = clean(b.dept), nickname = clean(b.nickname, 12);
+    if (!school || !nickname) return [400, { error: '학교와 닉네임이 필요해요' }];
+    const userId = crypto.randomUUID();
+    const token = crypto.randomBytes(18).toString('hex');
+    db.users[userId] = { token, school, dept, nickname, ranking: true, createdAt: Date.now() };
+    requestSchool(school, userId);
+    save();
+    return { userId, token, school, schoolStatus: schoolStatus(school) };
+  },
+
+  'POST /api/profile': (b) => {
+    const u = auth(b);
+    if (!u) return [401, { error: 'auth' }];
+    if (b.school) u.school = canonicalSchool(b.school);
+    requestSchool(u.school, b.userId);
+    if ('dept' in b) u.dept = clean(b.dept);
+    u.nickname = clean(b.nickname, 12) || u.nickname;
+    if ('ranking' in b) u.ranking = !!b.ranking;
+    save();
+    return { ok: true, school: u.school, schoolStatus: schoolStatus(u.school) };
+  },
+
+  'POST /api/delete': (b) => {
+    if (!auth(b)) return [401, { error: 'auth' }];
+    delete db.users[b.userId];
+    for (const d of Object.values(db.days)) delete d[b.userId];
+    save();
+    return { ok: true };
+  },
+
+  'POST /api/heartbeat': (b) => {
+    const u = auth(b);
+    if (!u) return [401, { error: 'auth' }];
+    const now = Date.now();
+    const date = dateKey(now);
+    if (b.date !== date) return { ok: true, ignored: 'date' }; // 지난 날짜는 받지 않음
+    const day = (db.days[date] ||= {});
+    // 오늘 첫 보고면 자정 이후 흐른 시간까지 인정 (서버가 꺼져 있던 동안의 공부도 반영)
+    const midnight = new Date(now).setHours(0, 0, 0, 0);
+    const prev = day[b.userId] || { focusSec: 0, combos: 0, distractions: 0, lastSeen: midnight, studying: false };
+    // 가벼운 부정 방지: 지난 보고 이후 흐른 시간보다 많이 늘 수 없음
+    const allowed = prev.focusSec + (now - prev.lastSeen) / 1000 + 90;
+    const focusSec = Math.max(prev.focusSec, Math.min(Number(b.focusSec) || 0, allowed, 86400));
+    const combos = Math.max(prev.combos, Math.min(Number(b.combos) || 0, Math.floor(focusSec / 1500)));
+    if (combos > prev.combos) pushEvent(date, u.school, `${u.nickname}님이 25분 집중 콤보 달성 · +${(combos - prev.combos) * 5}점`);
+    if (b.studying && !prev.studying) pushEvent(date, u.school, `${u.nickname}님이 공부 모드를 켰어요`);
+    // 시간대별 순공 (0~23시, 초). 합이 순공보다 크면 비율로 줄임
+    let hours = Array.isArray(b.hours) && b.hours.length === 24 ? b.hours.map((x) => Math.max(0, Number(x) || 0)) : prev.hours;
+    if (hours) {
+      const sum = hours.reduce((a, x) => a + x, 0);
+      if (sum > focusSec + 60) hours = hours.map((x) => (x * focusSec) / sum);
+      hours = hours.map((x) => Math.round(x));
+    }
+    day[b.userId] = { focusSec, combos, distractions: Math.max(0, Math.min(999, Number(b.distractions) || 0)), studying: !!b.studying, lastSeen: now, hours, via: b.via === 'ext' ? 'ext' : 'web' };
+    checkOvertakes(date);
+    save();
+    return { ok: true, score: userScore(focusSec, combos) };
+  },
+
+  // ----- 내 계정 (사이트 '내 기록'용) -----
+  'POST /api/me': (b) => {
+    const u = auth(b);
+    if (!u) return [401, { error: 'auth' }];
+    const days = {};
+    for (const [date, d] of Object.entries(db.days)) {
+      const x = d[b.userId];
+      if (x) days[date] = { focusSec: x.focusSec, distractions: x.distractions || 0, combos: x.combos || 0, hours: x.hours || new Array(24).fill(0), via: x.via };
+    }
+    return { profile: { userId: b.userId, school: u.school, dept: u.dept, nickname: u.nickname, ranking: u.ranking !== false, schoolStatus: schoolStatus(u.school) }, days };
+  },
+
+  // ----- 학교 등록 요청 관리 (이 PC에서만) -----
+  'GET /api/admin/requests': () => ({
+    requests: Object.entries(db.schools.requests).map(([key, r]) => ({ key, name: r.name, count: r.users.length, status: r.status, into: r.into, ts: r.ts })).sort((a, b) => b.ts - a.ts),
+    approved: Object.keys(db.schools.approved),
+  }),
+  'POST /api/admin/approve': (b) => { approveSchool(b.key, '관리자'); save(); return { ok: true }; },
+  'POST /api/admin/reject': (b) => { const r = db.schools.requests[b.key]; if (r) r.status = 'rejected'; save(); return { ok: true }; },
+  'POST /api/admin/merge': (b) => {
+    const r = db.schools.requests[b.key];
+    const into = resolveSchool(b.into) || (db.schools.approved[b.into] ? b.into : null);
+    if (!r || !into) return [400, { error: '합칠 학교를 목록에서 찾지 못했어요' }];
+    for (const id of r.users) if (db.users[id]) db.users[id].school = into;
+    r.status = 'merged';
+    r.into = into;
+    save();
+    return { ok: true, into };
+  },
+
+  'GET /api/league': (_, q) => {
+    const date = q.get('date') || dateKey();
+    return league(date, { school: q.get('school') || undefined, dept: q.get('dept') || undefined, userId: q.get('userId') || undefined });
+  },
+};
+
+function serveFile(res, file) {
+  fs.readFile(file, (err, buf) => {
+    if (err) return sendJSON(res, 404, { error: 'not found' });
+    res.writeHead(200, { 'content-type': MIME[path.extname(file)] || 'application/octet-stream', 'cache-control': 'no-cache' });
+    res.end(buf);
+  });
+}
+
+const server = http.createServer(async (req, res) => {
+  const url = new URL(req.url, 'http://x');
+  if (req.method === 'OPTIONS') return sendJSON(res, 204, {});
+  const local = ['127.0.0.1', '::1', '::ffff:127.0.0.1'].includes(req.socket.remoteAddress) && !req.headers['x-forwarded-for'];
+  const admin = local || (ADMIN_KEY && (url.searchParams.get('key') === ADMIN_KEY || req.headers['x-admin-key'] === ADMIN_KEY));
+  if (url.pathname.startsWith('/api/admin') && !admin) return sendJSON(res, 403, { error: '관리 권한이 없어요' });
+  const fn = routes[`${req.method} ${url.pathname}`];
+  if (fn) {
+    try {
+      const b = req.method === 'POST' ? await body(req) : {};
+      const out = fn(b, url.searchParams);
+      return Array.isArray(out) ? sendJSON(res, out[0], out[1]) : sendJSON(res, 200, out);
+    } catch (e) {
+      console.error(e);
+      return sendJSON(res, 500, { error: String(e) });
+    }
+  }
+  if (req.method === 'GET' && url.pathname === '/admin') {
+    if (!admin) return sendJSON(res, 403, { error: '관리 권한이 없어요' });
+    res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
+    return res.end(fs.readFileSync(path.join(DIR, 'public', 'admin.html')));
+  }
+  // 실시간 전광판 (발표 화면용)
+  if (req.method === 'GET' && url.pathname === '/board') {
+    res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
+    return res.end(fs.readFileSync(path.join(DIR, 'public', 'board.html')));
+  }
+  // 사이트
+  if (req.method === 'GET' && (url.pathname === '/' || url.pathname === '/index.html')) {
+    res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-cache' });
+    return res.end(fs.readFileSync(path.join(DIR, 'public', 'index.html')));
+  }
+  if (req.method === 'GET' && url.pathname === '/theme.js') return serveFile(res, path.join(ROOT, 'extension', 'theme.js'));
+  if (req.method === 'GET') {
+    for (const [prefix, dir] of STATIC) {
+      if (!url.pathname.startsWith(prefix)) continue;
+      const file = path.normalize(path.join(dir, decodeURIComponent(url.pathname.slice(prefix.length))));
+      if (!file.startsWith(dir + path.sep)) break; // 폴더 밖 접근 차단
+      return serveFile(res, file);
+    }
+  }
+  sendJSON(res, 404, { error: 'not found' });
+});
+
+server.listen(PORT, HOST, () => {
+  console.log(`\n  BUILD 대학교 사이트       http://localhost:${PORT}`);
+  console.log(`  실시간 전광판           http://localhost:${PORT}/board`);
+  console.log(`  학교 등록 요청 관리      http://localhost:${PORT}/admin`);
+  console.log(`  데모 학교 시뮬레이션     ${DEMO ? '켜짐 (끄려면 DEMO=0)' : '꺼짐'}\n`);
+});

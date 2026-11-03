@@ -1,0 +1,126 @@
+/* BUILD 대학교 — 디자인 토큰 (첨부 디자인 기준) · 라이트/다크 */
+/* 라이트(기본) */
+:root {
+  --ink: #0E1116;
+  --ink2: #3A404B;
+  --muted: #5B6270;
+  --faint: #9AA1AC;
+  --line: #E3E6EB;
+  --line2: #C9CED6;
+  --soft: #EEF1F5;
+  --bg: #F3F4F6;
+  --card: #FFFFFF;
+  --hover: #FAFBFC;
+  --field: #F9FAFB;
+  --blue: #1D4ED8;
+  --blue-soft: #E8EEFD;
+  --blue-mid: #93AEF2;
+  --blue-pale: #C7D5F8;
+  --navy: #1E3A8A;
+  --yellow: #FACC15;
+  --yellow-soft: #FEF6CC;
+  --on-yellow: #0E1116;
+  --orange: #C2410C;
+  --orange-soft: #FDEDE4;
+  --green: #15803D;
+  --live: #16A34A;
+  --slate: #475569;
+  --band-gray: #F4F5F7;
+  --band-away: #EEF0F2;
+  --h1: #C7D5F8; --h2: #8EA9F0; --h3: #4F78E3; --h4: #1D4ED8;
+  /* 검은 카드(예상 학점·대항전 상단) */
+  --inv: #0E1116;
+  --inv-line: #0E1116;
+  --inv-fg: #FFFFFF;
+  --inv-muted: #C9CED6;
+  --inv-box: #1A1F27;
+  --inv-track: #2A2F38;
+  /* 기본 버튼 */
+  --btn: #0E1116;
+  --btn-fg: #FFFFFF;
+  --btn-hover: #262B33;
+  --shadow: 0 1px 2px rgba(0,0,0,.06);
+  --sans: 'IBM Plex Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', system-ui, sans-serif;
+  --mono: 'JetBrains Mono', ui-monospace, 'Consolas', monospace;
+  color-scheme: light;
+}
+/* 다크 */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --ink: #E8EAED; --ink2: #C3C8D0; --muted: #9AA1AC; --faint: #5B6270;
+    --line: #262C35; --line2: #3A414D; --soft: #1E242D; --bg: #0B0D11; --card: #14181F; --hover: #1A1F27; --field: #181D25;
+    --blue: #6B93FF; --blue-soft: #18233F; --blue-mid: #3B5AA8; --blue-pale: #2A3A63; --navy: #A9C0FF;
+    --yellow: #FACC15; --yellow-soft: #3A3212; --orange: #FB8A4C; --orange-soft: #3A1E10; --green: #4ADE80; --live: #4ADE80;
+    --slate: #A3AEC0; --band-gray: #181D25; --band-away: #181D25;
+    --h1: #22325C; --h2: #2F4FA8; --h3: #456FE6; --h4: #7FA2FF;
+    --inv: #161B22; --inv-line: #2A313C; --inv-fg: #E8EAED; --inv-muted: #9AA1AC; --inv-box: #1E242D; --inv-track: #2F3642;
+    --btn: #E8EAED; --btn-fg: #0E1116; --btn-hover: #FFFFFF;
+    --shadow: 0 1px 2px rgba(0,0,0,.4);
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --ink: #E8EAED; --ink2: #C3C8D0; --muted: #9AA1AC; --faint: #5B6270;
+  --line: #262C35; --line2: #3A414D; --soft: #1E242D; --bg: #0B0D11; --card: #14181F; --hover: #1A1F27; --field: #181D25;
+  --blue: #6B93FF; --blue-soft: #18233F; --blue-mid: #3B5AA8; --blue-pale: #2A3A63; --navy: #A9C0FF;
+  --yellow: #FACC15; --yellow-soft: #3A3212; --orange: #FB8A4C; --orange-soft: #3A1E10; --green: #4ADE80; --live: #4ADE80;
+  --slate: #A3AEC0; --band-gray: #181D25; --band-away: #181D25;
+  --h1: #22325C; --h2: #2F4FA8; --h3: #456FE6; --h4: #7FA2FF;
+  --inv: #161B22; --inv-line: #2A313C; --inv-fg: #E8EAED; --inv-muted: #9AA1AC; --inv-box: #1E242D; --inv-track: #2F3642;
+  --btn: #E8EAED; --btn-fg: #0E1116; --btn-hover: #FFFFFF;
+  --shadow: 0 1px 2px rgba(0,0,0,.4);
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body { font-family: var(--sans); color: var(--ink); background: var(--bg); -webkit-font-smoothing: antialiased; }
+button, input, select { font-family: inherit; }
+a { color: var(--blue); }
+a:hover { color: var(--navy); }
+.mono { font-family: var(--mono); }
+
+.logo { display: inline-flex; align-items: center; gap: 8px; text-decoration: none; color: var(--ink); }
+.logo b { background: var(--yellow); color: var(--on-yellow); font-family: var(--mono); font-weight: 700; font-size: 13px; letter-spacing: .08em; padding: 3px 7px; }
+.logo span { font-weight: 600; font-size: 14px; }
+
+.card { background: var(--card); border: 1px solid var(--line); border-radius: 16px; }
+.btn { height: 44px; padding: 0 18px; border-radius: 8px; border: 0; background: var(--btn); color: var(--btn-fg); font-size: 14px; font-weight: 600; cursor: pointer; }
+.btn:hover { background: var(--btn-hover); }
+.btn.line { background: var(--card); color: var(--ink); border: 1px solid var(--line2); font-weight: 500; }
+.btn.line:hover { background: var(--soft); }
+.btn.blue { background: #1D4ED8; color: #fff; }
+.btn.blue:hover { background: #1E3A8A; }
+.btn.danger { background: var(--card); color: var(--orange); border: 1px solid var(--orange); }
+.btn:focus-visible, .switch:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
+
+.switch { width: 44px; height: 26px; border-radius: 13px; background: var(--faint); position: relative; border: 0; padding: 0; cursor: pointer; flex-shrink: 0; transition: background .15s; }
+.switch::after { content: ''; position: absolute; top: 3px; left: 3px; width: 20px; height: 20px; border-radius: 50%; background: #fff; transition: left .15s; }
+.switch[aria-checked='true'] { background: var(--blue); }
+.switch[aria-checked='true']::after { left: 21px; }
+
+.field { display: flex; flex-direction: column; gap: 6px; }
+.field label { font-size: 13px; font-weight: 600; }
+.input { height: 48px; border: 1px solid var(--line2); border-radius: 8px; padding: 0 14px; font-size: 15px; background: var(--card); color: var(--ink); width: 100%; }
+.hint { font-size: 12px; color: var(--muted); }
+
+.dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+.live { position: relative; }
+.live::before { content: ''; position: absolute; inset: -3px; border-radius: 50%; background: currentColor; opacity: .35; animation: ping 1.6s ease-out infinite; }
+@keyframes ping { 0% { transform: scale(.6); opacity: .5; } 100% { transform: scale(1.8); opacity: 0; } }
+
+.tag { display: inline-flex; align-items: center; font-size: 12px; color: var(--muted); background: var(--soft); border-radius: 4px; padding: 3px 7px; }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
+
+/* 테마 전환 버튼 */
+.theme-btn { width: 40px; height: 40px; display: inline-flex; align-items: center; justify-content: center; border-radius: 8px; border: 0; background: none; color: var(--muted); cursor: pointer; }
+.theme-btn:hover { background: var(--soft); color: var(--ink); }
+.theme-btn .moon { display: none; }
+:root[data-theme="dark"] .theme-btn .sun { display: none; }
+:root[data-theme="dark"] .theme-btn .moon { display: inline; }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .theme-btn .sun { display: none; }
+  :root:not([data-theme="light"]) .theme-btn .moon { display: inline; }
+}
+select.input option { background: var(--card); color: var(--ink); }
+input[type="date"].input { color-scheme: inherit; }

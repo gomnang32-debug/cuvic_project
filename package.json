@@ -1,0 +1,12 @@
+{
+  "name": "build-university",
+  "version": "0.1.0",
+  "private": true,
+  "description": "BUILD 대학교 — 대학생 공부 집중 브라우저 확장 + 학교 대항전 서버",
+  "type": "module",
+  "scripts": {
+    "server": "node server/server.js",
+    "server:lan": "node server/server.js --lan"
+  },
+  "engines": { "node": ">=18" }
+}

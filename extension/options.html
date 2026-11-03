@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<script src="theme.js"></script>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>설정 · BUILD 대학교</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700&display=swap">
+<link rel="stylesheet" href="styles/common.css">
+<style>
+  .page { max-width: 1080px; margin: 0 auto; padding: 28px 24px 80px; }
+  .head { display: flex; align-items: center; gap: 12px; margin-bottom: 28px; }
+  .head h1 { font-size: 22px; margin: 0; }
+  .head a.back { margin-left: auto; font-size: 14px; }
+  .cols { display: grid; grid-template-columns: 200px minmax(0, 1fr); gap: 24px; align-items: start; }
+  nav { position: sticky; top: 24px; display: flex; flex-direction: column; gap: 4px; }
+  nav a { display: block; padding: 12px 14px; border-radius: 10px; color: var(--ink2); text-decoration: none; font-size: 14px; border: 1px solid transparent; }
+  nav a.on { background: var(--card); border-color: var(--line); color: var(--ink); font-weight: 600; }
+  .sec { padding: 28px; margin-bottom: 20px; scroll-margin-top: 24px; }
+  .sec h2 { font-size: 18px; margin: 0 0 4px; }
+  .desc { font-size: 14px; color: var(--ink2); margin: 0 0 16px; }
+  .banner { display: flex; align-items: center; gap: 12px; background: var(--yellow-soft); border-radius: 10px; padding: 12px 14px; margin-bottom: 16px; font-size: 14px; }
+  .banner .btn { height: 40px; font-size: 13px; }
+  .banner span { flex: 1; }
+  .tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--line); margin-bottom: 16px; }
+  .tabs button { background: none; border: 0; padding: 12px 16px; font-size: 14px; font-weight: 600; color: var(--muted); cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -1px; }
+  .tabs button.on { color: var(--blue); border-color: var(--blue); }
+  .add { display: flex; gap: 8px; margin-bottom: 8px; }
+  .add .input { height: 44px; font-size: 14px; }
+  .site { display: flex; align-items: center; gap: 12px; padding: 14px 0; border-bottom: 1px solid var(--line); }
+  .site .mono { font-size: 14px; font-weight: 500; flex: 1; }
+  .x { width: 32px; height: 32px; border: 0; background: none; color: var(--muted); border-radius: 6px; cursor: pointer; font-size: 18px; }
+  .x:hover { background: var(--soft); color: var(--ink); }
+  .row { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 14px 0; border-bottom: 1px solid var(--line); }
+  .row:last-child { border-bottom: 0; }
+  .row b { display: block; font-size: 15px; font-weight: 500; }
+  .row .hint { font-size: 13px; }
+  select.input, .row .input { height: 44px; font-size: 14px; width: auto; min-width: 140px; }
+  .grid3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; margin-bottom: 12px; }
+  .empty { padding: 20px 0; color: var(--muted); font-size: 14px; }
+  .ok { color: var(--green); } .bad { color: var(--orange); }
+  .seg { display: inline-flex; background: var(--soft); border-radius: 10px; padding: 3px; flex-shrink: 0; }
+  .seg button { border: 0; background: transparent; padding: 8px 14px; border-radius: 8px; font-size: 13px; font-weight: 600; color: var(--muted); cursor: pointer; }
+  .seg button.on { background: var(--card); color: var(--ink); box-shadow: var(--shadow); }
+  .head .theme-btn { margin-left: 4px; }
+  .toast { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); background: var(--btn); color: var(--btn-fg); padding: 12px 18px; border-radius: 10px; font-size: 14px; opacity: 0; transition: opacity .2s; pointer-events: none; }
+  .toast.show { opacity: 1; }
+  @media (max-width: 760px) { .cols { grid-template-columns: 1fr; } nav { position: static; flex-direction: row; overflow-x: auto; } .grid3 { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<div class="page">
+  <div class="head"><span class="logo"><b>BUILD</b></span><h1>설정</h1><a class="back" href="dashboard.html#me">대시보드로</a><button class="theme-btn" data-theme-toggle aria-label="라이트/다크 모드 전환" title="라이트/다크 모드"><svg class="sun" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg><svg class="moon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg></button></div>
+  <div class="cols">
+    <nav id="nav">
+      <a href="#sites" class="on">사이트 목록</a>
+      <a href="#screen">화면</a>
+      <a href="#alerts">알림</a>
+      <a href="#measure">측정</a>
+      <a href="#account">랭킹·계정</a>
+      <a href="#demo">발표·테스트</a>
+    </nav>
+    <main>
+      <section class="card sec" id="sites">
+        <h2>내가 정한 사이트</h2>
+        <p class="desc">기본 규칙과 AI 판별보다 먼저 적용돼요.</p>
+        <div id="suggest"></div>
+        <div class="tabs" role="tablist"><button id="tStudy" class="on" role="tab">공부 사이트</button><button id="tDis" role="tab">딴짓 사이트</button></div>
+        <form class="add" id="addForm"><input class="input" id="addInput" placeholder="도메인 입력 (예: notion.so)" aria-label="도메인"><button class="btn blue" type="submit">추가</button></form>
+        <div id="list"></div>
+      </section>
+
+      <section class="card sec" id="screen">
+        <h2>화면</h2>
+        <div class="row"><div><b>테마</b><span class="hint">팝업·대시보드·설정에 모두 적용돼요. 상단의 해/달 버튼으로도 바꿀 수 있어요.</span></div>
+          <div class="seg" id="themeSeg" role="radiogroup" aria-label="테마"><button data-t="system">시스템 설정</button><button data-t="light">라이트</button><button data-t="dark">다크</button></div></div>
+      </section>
+
+      <section class="card sec" id="alerts">
+        <h2>알림</h2>
+        <div class="row"><div><b>딴짓 알림</b><span class="hint">공부 탭에서 2분 넘게 벗어나면 알려요. 같은 알림은 10분에 한 번까지.</span></div><button class="switch" data-n="distract" role="switch" aria-label="딴짓 알림"></button></div>
+        <div class="row"><div><b>하루 목표 달성</b><span class="hint">오늘 순공 시간이 목표를 넘으면 알려요.</span></div><button class="switch" data-n="goal" role="switch" aria-label="하루 목표 달성 알림"></button></div>
+        <div class="row"><div><b>학교 순위 상승</b><span class="hint">우리 학교 오늘 순위가 오르면 알려요.</span></div><button class="switch" data-n="rank" role="switch" aria-label="학교 순위 상승 알림"></button></div>
+      </section>
+
+      <section class="card sec" id="measure">
+        <h2>측정</h2>
+        <div class="row"><div><b>자리 비움 기준</b><span class="hint">이 시간 동안 키보드·마우스 입력이 없으면 측정을 멈추고, 마지막 입력 시각까지만 인정해요. 공부 탭에서 강의 영상 소리가 나는 동안은 계속 재요.</span></div>
+          <select class="input" id="idleMin"><option value="1">1분</option><option value="3">3분</option><option value="5">5분</option><option value="10">10분</option><option value="15">15분</option></select></div>
+        <div class="row"><div><b>하루 목표</b><span class="hint">팝업과 대시보드의 목표선이에요.</span></div>
+          <select class="input" id="goalMin"><option value="60">1시간</option><option value="120">2시간</option><option value="180">3시간</option><option value="240">4시간</option><option value="300">5시간</option><option value="360">6시간</option><option value="480">8시간</option></select></div>
+        <div class="row"><div><b>개강일</b><span class="hint">대시보드의 'n주차' 계산에 써요.</span></div><input class="input" type="date" id="semesterStart"></div>
+        <div class="row" style="align-items:flex-start"><div style="flex:1"><b>AI 판별 (선택)</b><span class="hint">유튜브처럼 애매한 탭은 제목과 도메인만 Claude에게 보내 공부인지 물어봐요. 키가 없으면 제목 키워드로 판별하고, 모르면 '판별 보류'로 두었다가 정정 버튼으로 소급해요.</span>
+          <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap"><input class="input" id="aiKey" type="password" placeholder="Anthropic API 키 (sk-ant-…)" style="flex:1;min-width:220px"><input class="input" id="aiModel" placeholder="모델" style="width:180px"></div></div></div>
+      </section>
+
+      <section class="card sec" id="account">
+        <h2>랭킹·계정</h2>
+        <div class="grid3">
+          <div class="field"><label for="pSchool">학교</label><input class="input" id="pSchool" list="schools"><datalist id="schools"></datalist></div>
+          <div class="field"><label for="pDept">학과 <span class="hint" style="font-weight:400">(선택)</span></label><input class="input" id="pDept" list="depts" placeholder="비워 둬도 돼요"><datalist id="depts"></datalist></div>
+          <div class="field"><label for="pNick">닉네임</label><input class="input" id="pNick" maxlength="12"></div>
+        </div>
+        <div style="margin-bottom:8px"><button class="btn line" id="saveProfile">소속 저장</button></div>
+        <div class="row"><div><b>랭킹 참여</b><span class="hint" id="rankDesc">끄면 점수를 보내지 않아요.</span></div><button class="switch" id="ranking" role="switch" aria-label="랭킹 참여"></button></div>
+        <div class="row" style="align-items:flex-start"><div style="flex:1"><b>대항전 서버</b><span class="hint">같은 서버에 연결한 사람끼리 학교 점수를 겨뤄요. 서버가 꺼져 있으면 이 브라우저 안에서 오프라인 리그로 보여줘요.</span>
+          <div style="display:flex;gap:8px;margin-top:10px;align-items:center;flex-wrap:wrap"><input class="input" id="serverUrl" style="flex:1;min-width:220px"><button class="btn line" id="check">연결 확인</button><span id="srvStatus" class="hint"></span></div></div></div>
+        <div class="row"><div><b>데모 학교 섞기</b><span class="hint">아직 사용자가 적을 때, 다른 학교 학생들의 공부를 시간대별로 시뮬레이션해서 리그를 채워요. (오프라인 리그 기준 · 서버는 DEMO 설정을 따름)</span></div><button class="switch" id="demoLeague" role="switch" aria-label="데모 학교 섞기"></button></div>
+        <div class="row"><span class="hint" style="font-size:14px;color:var(--ink2)">계정을 지우면 서버의 학점·순공 기록이 모두 지워지고 되돌릴 수 없어요.</span><button class="btn danger" id="del">계정 삭제</button></div>
+      </section>
+
+      <section class="card sec" id="demo">
+        <h2>발표·테스트</h2>
+        <p class="desc">심사 시연용이에요. 실제 기록과 섞이니 시연이 끝나면 초기화하세요.</p>
+        <div class="row"><div><b>지난 8주 기록 채우기</b><span class="hint">확정 학점·캠퍼스 층·요일별 그래프가 보이도록 예시 기록을 넣어요. (오늘 기록은 건드리지 않아요)</span></div><button class="btn line" id="seed">채우기</button></div>
+        <div class="row"><div><b>측정 기록 초기화</b><span class="hint">순공·학점 기록만 지우고 소속과 설정은 남겨요.</span></div><button class="btn danger" id="wipe">초기화</button></div>
+      </section>
+    </main>
+  </div>
+</div>
+<div class="toast" id="toast" role="status"></div>
+<script type="module" src="options.js"></script>
+</body>
+</html>

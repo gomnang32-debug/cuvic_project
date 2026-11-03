@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<script>try{var t=localStorage.getItem('board-theme');if(t)document.documentElement.setAttribute('data-theme',t)}catch(e){}</script>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>학교 대항전 전광판 · BUILD 대학교</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;600;700&family=JetBrains+Mono:wght@700;800&display=swap">
+<style>
+  :root { --bg:#F3F4F6; --fg:#0E1116; --y:#FACC15; --ytext:#A16207; --muted:#5B6270; --line:#E3E6EB; --panel:#FFFFFF; --seg:#E5E7EB; --segon:#FFFFFF; --bar1:rgba(29,78,216,.18); --bar2:rgba(29,78,216,.03); --live:#16A34A; --sans:'IBM Plex Sans KR','Malgun Gothic',system-ui,sans-serif; --mono:'JetBrains Mono',Consolas,monospace; color-scheme: light; }
+  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --bg:#0E1116; --fg:#FFFFFF; --ytext:#FACC15; --muted:#9AA1AC; --line:#262B33; --panel:#161A21; --seg:#1A1F27; --segon:#2A2F38; --bar1:rgba(29,78,216,.35); --bar2:rgba(29,78,216,.05); --live:#4ADE80; color-scheme: dark; } }
+  :root[data-theme="dark"] { --bg:#0E1116; --fg:#FFFFFF; --ytext:#FACC15; --muted:#9AA1AC; --line:#262B33; --panel:#161A21; --seg:#1A1F27; --segon:#2A2F38; --bar1:rgba(29,78,216,.35); --bar2:rgba(29,78,216,.05); --live:#4ADE80; color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--fg); font-family: var(--sans); min-height: 100vh; }
+  .wrap { max-width: 1400px; margin: 0 auto; padding: 32px 32px 48px; }
+  .top { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
+  .logo { background: var(--y); color: #0E1116; font-family: var(--mono); font-weight: 800; padding: 4px 10px; letter-spacing: .08em; }
+  h1 { font-size: 34px; margin: 0; letter-spacing: -.02em; }
+  .live { display: inline-flex; align-items: center; gap: 8px; font-family: var(--mono); font-weight: 800; color: #F97316; font-size: 14px; }
+  .live i { width: 10px; height: 10px; border-radius: 50%; background: #F97316; animation: blink 1.2s infinite; }
+  @keyframes blink { 50% { opacity: .2; } }
+  .cd { margin-left: auto; text-align: right; }
+  .cd small { display: block; color: var(--muted); font-size: 13px; }
+  .cd b { font-family: var(--mono); font-size: 36px; color: var(--ytext); }
+  .cols { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); gap: 24px; margin-top: 28px; }
+  .seg { display: inline-flex; background: var(--seg); border-radius: 10px; padding: 4px; margin-bottom: 12px; }
+  .seg button { background: none; border: 0; color: var(--muted); font: 600 15px var(--sans); padding: 8px 16px; border-radius: 8px; cursor: pointer; }
+  .seg button.on { background: var(--segon); color: var(--fg); }
+  .row { display: grid; grid-template-columns: 64px minmax(0, 1fr) 120px 180px; gap: 16px; align-items: center; padding: 14px 16px; border-bottom: 1px solid var(--line); position: relative; transition: transform .6s; }
+  .row .bg { position: absolute; left: 0; top: 0; bottom: 0; background: linear-gradient(90deg, var(--bar1), var(--bar2)); z-index: 0; transition: width 1s; border-radius: 6px; }
+  .row > *:not(.bg) { position: relative; z-index: 1; }
+  .rk { font-family: var(--mono); font-weight: 800; font-size: 28px; color: var(--muted); }
+  .row:nth-child(-n+3) .rk { color: var(--ytext); }
+  .nm { font-size: 22px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .st { color: var(--live); font-size: 15px; }
+  .sc { font-family: var(--mono); font-weight: 800; font-size: 28px; text-align: right; }
+  .row.real .nm::after { content: '실사용자'; font-size: 11px; background: var(--y); color: #0E1116; padding: 2px 6px; border-radius: 4px; margin-left: 10px; vertical-align: middle; font-weight: 700; }
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 16px; padding: 20px; }
+  .panel h2 { margin: 0 0 12px; font-size: 18px; }
+  .ev { padding: 10px 0; border-bottom: 1px solid var(--line); font-size: 15px; }
+  .ev .t { font-family: var(--mono); color: var(--muted); margin-right: 8px; font-size: 13px; }
+  .ev b { color: var(--ytext); }
+  .rules { margin-top: 16px; color: var(--muted); font-size: 14px; line-height: 1.7; }
+  .demo { color: var(--muted); font-size: 13px; }
+  .tbtn { width: 40px; height: 40px; border-radius: 8px; border: 1px solid var(--line); background: var(--panel); color: var(--fg); cursor: pointer; display: inline-flex; align-items: center; justify-content: center; }
+  @media (max-width: 900px) { .cols { grid-template-columns: 1fr; } .row { grid-template-columns: 44px minmax(0,1fr) 110px; } .st { display: none; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="top">
+    <span class="logo">BUILD</span><h1>오늘의 학교 대항전</h1><span class="live"><i></i>LIVE</span>
+    <div class="cd"><small>오늘 판 마감까지</small><b id="cd">--:--:--</b></div>
+    <button class="tbtn" id="tbtn" aria-label="라이트/다크 모드 전환" title="라이트/다크 모드"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 3a9 9 0 0 0 0 18z" fill="currentColor"/></svg></button>
+  </div>
+  <div class="cols">
+    <div>
+      <div class="seg"><button data-by="score" class="on">총점</button><button data-by="avg">1인 평균</button></div>
+      <div id="list"></div>
+      <div class="demo" id="demo"></div>
+    </div>
+    <div>
+      <div class="panel"><h2>실시간 소식</h2><div id="feed"></div></div>
+      <div class="rules">순공 1분 = 학교 1점 · 25분 연속 집중 콤보 +5점<br>딴짓·자리 비움은 0점 · 매일 0시 리셋</div>
+    </div>
+  </div>
+</div>
+<script>
+  const pad = (n) => String(n).padStart(2, '0');
+  const fmt = (n) => Math.round(n).toLocaleString('ko-KR');
+  const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
+  let LG = null, fetchedAt = 0, by = 'score';
+  const today = () => { const d = new Date(); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`; };
+  const live = (s) => s.score + s.studying * (Date.now() - fetchedAt) / 60000;
+  document.querySelectorAll('.seg button').forEach((b) => b.onclick = () => { by = b.dataset.by; document.querySelectorAll('.seg button').forEach((x) => x.classList.toggle('on', x === b)); draw(); });
+  async function load() {
+    try {
+      LG = await (await fetch('/api/league?date=' + today())).json();
+      fetchedAt = Date.now();
+      draw();
+    } catch (e) { document.getElementById('demo').textContent = '서버 응답 없음'; }
+  }
+  function val(s) { return by === 'score' ? live(s) : (s.members ? live(s) / s.members : 0); }
+  function draw() {
+    if (!LG) return;
+    const arr = [...LG.schools].sort((a, b) => val(b) - val(a)).slice(0, 12);
+    const max = Math.max(1, ...arr.map(val));
+    document.getElementById('list').innerHTML = arr.map((s, i) => `<div class="row ${s.demo ? '' : 'real'}"><div class="bg" style="width:${val(s) / max * 100}%"></div><span class="rk">${i + 1}</span><span class="nm">${esc(s.name)}</span><span class="st">● ${fmt(s.studying)}명 공부 중</span><span class="sc" data-n="${esc(s.name)}">${fmt(val(s))}</span></div>`).join('');
+    document.getElementById('feed').innerHTML = LG.events.slice(0, 12).map((e) => { const d = new Date(e.t); return `<div class="ev"><span class="t">${pad(d.getHours())}:${pad(d.getMinutes())}</span><b>${esc(e.school)}</b> ${esc(e.text)}</div>`; }).join('') || '<div class="ev">아직 소식이 없어요</div>';
+    document.getElementById('demo').textContent = LG.demo ? '노란 표시가 없는 학교는 데모 시뮬레이션이에요. (서버를 DEMO=0 으로 켜면 실사용자만 표시)' : '';
+  }
+  function tick() {
+    if (LG) document.querySelectorAll('[data-n]').forEach((el) => { const s = LG.schools.find((x) => x.name === el.dataset.n); if (s) el.textContent = fmt(val(s)); });
+    const n = new Date(), m = new Date(n); m.setHours(24, 0, 0, 0);
+    const t = Math.floor((m - n) / 1000);
+    document.getElementById('cd').textContent = `${pad(Math.floor(t / 3600))}:${pad(Math.floor(t % 3600 / 60))}:${pad(t % 60)}`;
+  }
+  document.getElementById('tbtn').onclick = () => {
+    const root = document.documentElement;
+    const cur = root.getAttribute('data-theme') || (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+    const next = cur === 'dark' ? 'light' : 'dark';
+    root.setAttribute('data-theme', next);
+    try { localStorage.setItem('board-theme', next); } catch (e) {}
+  };
+  load(); setInterval(load, 5000); setInterval(tick, 1000);
+</script>
+</body>
+</html>

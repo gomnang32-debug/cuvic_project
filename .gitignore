@@ -1,0 +1,5 @@
+# 서버 점수·가입 기록 (개인정보 포함, 올리지 않음)
+server/data/
+node_modules/
+.DS_Store
+Thumbs.db

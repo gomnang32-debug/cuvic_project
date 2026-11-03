@@ -1,0 +1,17 @@
+# Render 배포 설정 — Render 대시보드에서 New → Blueprint 로 이 저장소를 고르면 자동으로 읽어요.
+services:
+  - type: web
+    name: build-univ
+    runtime: node
+    plan: free
+    buildCommand: echo "no build step"
+    startCommand: node server/server.js
+    healthCheckPath: /api/health
+    envVars:
+      - key: HOST
+        value: 0.0.0.0
+      - key: DEMO
+        value: "1"           # 0 으로 바꾸면 데모 학교 없이 실사용자만
+      - key: ADMIN_KEY
+        generateValue: true  # /admin?key=… 로 학교 등록 요청 관리
+      # 유료 디스크를 붙였다면: DATA_DIR = /var/data
