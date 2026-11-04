@@ -6,7 +6,14 @@
   "type": "module",
   "scripts": {
     "server": "node server/server.js",
-    "server:lan": "node server/server.js --lan"
+    "server:lan": "node server/server.js --lan",
+    "test": "node --test tests/unit.test.mjs tests/server.test.mjs tests/web-timer.test.mjs tests/extension.test.mjs",
+    "test:quick": "node --test tests/unit.test.mjs tests/server.test.mjs"
   },
-  "engines": { "node": ">=18" }
+  "engines": {
+    "node": ">=18"
+  },
+  "devDependencies": {
+    "playwright": "^1.49.0"
+  }
 }
