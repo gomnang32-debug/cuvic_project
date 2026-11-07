@@ -47,10 +47,10 @@ test('기록 조작 방지: 지난 보고 이후 흐른 시간보다 많이 늘�
 
 test('기록 조작 방지: 이미 쌓인 기록은 줄어들지 않음', async () => {
   const u = (await join('충북대학교', '감소시도')).json;
-  await beat(u, { focusSec: 120 });
+  await beat(u, { focusSec: 60 }); // 가입 직후라 여유 시간(90초) 안에서만 인정됨
   await beat(u, { focusSec: 10 });
   const d = (await api(srv.url, '/api/me', { userId: u.userId, token: u.token })).json.days[todayKey()];
-  assert.ok(d.focusSec >= 120);
+  assert.ok(d.focusSec >= 60);
 });
 
 test('인증: 토큰이 틀리면 기록을 받지 않음', async () => {
@@ -82,4 +82,50 @@ test('비기능: 서버에 방문 기록(주소·제목)을 보내도 저장하�
   const me = await api(srv.url, '/api/me', { userId: u.userId, token: u.token });
   const text = JSON.stringify(me.json);
   assert.ok(!text.includes('secret.example.com') && !text.includes('비밀 제목'));
+});
+
+test('보안: userId가 __proto__·constructor여도 토큰 없이 통과하지 못함', async () => {
+  for (const userId of ['__proto__', 'constructor', 'toString']) {
+    const r = await api(srv.url, '/api/profile', { userId, school: '서울대', nickname: 'pwn' });
+    assert.equal(r.status, 401, userId);
+  }
+  assert.equal({}.school, undefined, 'Object.prototype이 오염됨');
+});
+
+test('기록 조작 방지: 가입 전 시간은 인정하지 않음 (첫 보고에 몇 시간을 주장해도 거의 0)', async () => {
+  const u = (await join('충북대학교', '새벽가입')).json;
+  await beat(u, { focusSec: 5 * 3600 });
+  const d = (await api(srv.url, '/api/me', { userId: u.userId, token: u.token })).json.days[todayKey()];
+  assert.ok(d.focusSec <= 95, `가입 직후 ${d.focusSec}초가 인정됨`);
+});
+
+test('기록 조작 방지: 짧은 간격으로 여러 번 보내도 여유 시간(90초)이 쌓이지 않음', async () => {
+  const u = (await join('충북대학교', '연타')).json;
+  for (let i = 0; i < 30; i++) await beat(u, { focusSec: 86400 });
+  const d = (await api(srv.url, '/api/me', { userId: u.userId, token: u.token })).json.days[todayKey()];
+  assert.ok(d.focusSec <= 100, `연타로 ${d.focusSec}초까지 늘어남`);
+});
+
+test('KST 기준: 서버가 UTC로 돌아도 한국 날짜로 보낸 기록을 받음', async () => {
+  const utc = await startServer({ env: { TZ: 'UTC' } });
+  try {
+    const u = (await api(utc.url, '/api/register', { school: '충북대', nickname: 'utc' })).json;
+    const r = await api(utc.url, '/api/heartbeat', { userId: u.userId, token: u.token, date: todayKey(), focusSec: 30 });
+    assert.equal(r.status, 200);
+    assert.equal(r.json.ignored, undefined);
+  } finally {
+    await utc.stop();
+  }
+});
+
+test('가입 횟수 제한: 한 IP에서 1시간에 정해진 수 이상은 가입 불가', async () => {
+  const lim = await startServer({ env: { REGISTER_LIMIT: '2' } });
+  try {
+    const go = () => api(lim.url, '/api/register', { school: '충북대', nickname: 'x' });
+    assert.equal((await go()).status, 200);
+    assert.equal((await go()).status, 200);
+    assert.equal((await go()).status, 429);
+  } finally {
+    await lim.stop();
+  }
 });

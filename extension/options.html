@@ -86,12 +86,12 @@
 
       <section class="card sec" id="measure">
         <h2>측정</h2>
-        <div class="row"><div><b>자리 비움 기준</b><span class="hint">이 시간 동안 키보드·마우스 입력이 없으면 측정을 멈추고, 마지막 입력 시각까지만 인정해요. 공부 탭에서 강의 영상 소리가 나는 동안은 계속 재요.</span></div>
+        <div class="row"><div><b>자리 비움 기준</b><span class="hint">이 시간 동안 키보드·마우스 입력이 없으면 측정을 멈추고, 마지막 입력 시각까지만 인정해요. 공부 탭에서 강의 영상 소리가 나는 동안은 마지막 입력 후 최대 60분까지 계속 재요.</span></div>
           <select class="input" id="idleMin"><option value="1">1분</option><option value="3">3분</option><option value="5">5분</option><option value="10">10분</option><option value="15">15분</option></select></div>
         <div class="row"><div><b>하루 목표</b><span class="hint">팝업과 대시보드의 목표선이에요.</span></div>
           <select class="input" id="goalMin"><option value="60">1시간</option><option value="120">2시간</option><option value="180">3시간</option><option value="240">4시간</option><option value="300">5시간</option><option value="360">6시간</option><option value="480">8시간</option></select></div>
         <div class="row"><div><b>개강일</b><span class="hint">대시보드의 'n주차' 계산에 써요.</span></div><input class="input" type="date" id="semesterStart"></div>
-        <div class="row" style="align-items:flex-start"><div style="flex:1"><b>AI 판별 (선택)</b><span class="hint">유튜브처럼 애매한 탭은 제목과 도메인만 Claude에게 보내 공부인지 물어봐요. 키가 없으면 제목 키워드로 판별하고, 모르면 '판별 보류'로 두었다가 정정 버튼으로 소급해요.</span>
+        <div class="row" style="align-items:flex-start"><div style="flex:1"><b>AI 판별 (선택)</b><span class="hint">유튜브처럼 애매한 사이트의 탭만 제목과 도메인을 Claude(Anthropic API)에게 보내 공부인지 물어봐요. 영상·글 제목이 전송되고, 검색 결과 페이지와 처음 보는 사이트는 보내지 않아요. 판별 결과는 이 브라우저에만 30일 동안 저장돼요. 키가 없으면 제목 키워드로 판별하고, 모르면 '판별 보류'로 두었다가 정정 버튼으로 소급해요.</span>
           <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap"><input class="input" id="aiKey" type="password" placeholder="Anthropic API 키 (sk-ant-…)" style="flex:1;min-width:220px"><input class="input" id="aiModel" placeholder="모델" style="width:180px"></div></div></div>
       </section>
 

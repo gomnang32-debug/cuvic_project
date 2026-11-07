@@ -10,6 +10,10 @@ services:
     envVars:
       - key: HOST
         value: 0.0.0.0
+      - key: TZ
+        value: Asia/Seoul    # 코드는 한국 시간을 직접 계산하지만, 로그 시각도 한국 시간으로
+      - key: TRUST_PROXY
+        value: "1"           # Render 프록시 뒤라서 실제 접속 IP는 x-forwarded-for 에 있음 (가입 횟수 제한용)
       - key: DEMO
         value: "1"           # 0 으로 바꾸면 데모 학교 없이 실사용자만
       - key: ADMIN_KEY

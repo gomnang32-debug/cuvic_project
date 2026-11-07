@@ -53,6 +53,13 @@ export async function deleteAccount(st) {
   } catch {}
 }
 
+/** 서버에 저장된 내 기록 (날짜별 순공·콤보·이탈·시간대) */
+export async function fetchMe(st) {
+  const p = st.profile;
+  if (!p?.token) return null;
+  return call(st.settings.serverUrl, '/api/me', { method: 'POST', body: JSON.stringify({ userId: p.userId, token: p.token }) });
+}
+
 /** 오늘 기록을 서버로 보냄. 보내는 것: 순공 합계·콤보·이탈 횟수·지금 공부 중인지 */
 export async function heartbeat(st, studying) {
   const p = st.profile;

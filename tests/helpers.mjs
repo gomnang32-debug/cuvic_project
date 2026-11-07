@@ -5,6 +5,7 @@ import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { dateKey } from '../extension/lib/util.js';
 
 export const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 export const EXT_DIR = path.join(ROOT, 'extension');
@@ -26,13 +27,13 @@ export const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 /**
  * 서버 실행. 실제 기록(server/data/db.json)은 건드리지 않도록 임시 폴더(DATA_DIR)를 쓴다.
- * @param {{demo?: boolean, port?: number}} opts
+ * @param {{demo?: boolean, port?: number, env?: Record<string,string>}} opts
  */
-export async function startServer({ demo = false, port } = {}) {
+export async function startServer({ demo = false, port, env = {} } = {}) {
   port ||= await freePort();
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'build-test-'));
   const proc = spawn(process.execPath, [path.join(ROOT, 'server', 'server.js')], {
-    env: { ...process.env, PORT: String(port), HOST: '127.0.0.1', DATA_DIR: dataDir, DEMO: demo ? '1' : '0' },
+    env: { ...process.env, PORT: String(port), HOST: '127.0.0.1', DATA_DIR: dataDir, DEMO: demo ? '1' : '0', ...env },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   let log = '';
@@ -64,8 +65,5 @@ export async function api(base, p, body) {
   return { status: r.status, json: await r.json().catch(() => ({})) };
 }
 
-/** 서버와 같은 방식(로컬 시간)으로 오늘 날짜 키 */
-export function todayKey(d = new Date()) {
-  const pad = (n) => String(n).padStart(2, '0');
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
-}
+/** 서버와 같은 방식(한국 시간)으로 오늘 날짜 키 */
+export const todayKey = (d = new Date()) => dateKey(d);

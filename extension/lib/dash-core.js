@@ -1,5 +1,5 @@
 // 대시보드 화면 (내 기록 · 대항전 · 캠퍼스) — 확장 프로그램과 사이트가 같이 씀
-import { dateKey, addDays, pad, dur, fmtNum, hms, clock } from './util.js';
+import { dateKey, addDays, pad, dur, fmtNum, hms, clock, weekdayOf, kstMidnight } from './util.js';
 import { weekReport, finalizedWeeks, gpa, semesterWeek, TARGET_HOURS } from './grade.js';
 import { ranked, userScore } from './sim.js';
 
@@ -89,7 +89,7 @@ export function createDash(opts) {
     const left = goal - today.focusSec;
     const end = addDays(w.start, 6);
     const sw = semesterWeek(ST.settings.semesterStart, now);
-    const todayIdx = (now.getDay() + 6) % 7;
+    const todayIdx = (weekdayOf(now) + 6) % 7;
     const maxH = Math.max(8, ...w.perDay.map((x) => x / 3600), ST.settings.goalMin / 60 + 1);
     const H = 200;
     const bars = w.perDay.map((sec, i) => {
@@ -166,10 +166,9 @@ export function createDash(opts) {
 
   // ---------- 대항전 ----------
   function untilMidnight() {
-    const n = new Date();
-    const m = new Date(n);
-    m.setHours(24, 0, 0, 0);
-    return (m - n) / 1000;
+    // 대항전은 한국 시간 0시에 초기화
+    const n = Date.now();
+    return (kstMidnight(n) + 86400000 - n) / 1000;
   }
 
   function viewBattle() {

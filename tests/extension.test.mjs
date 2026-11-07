@@ -124,3 +124,37 @@ test('공부 모드를 끄면 공부 사이트에서도 멈춤', async () => {
   assert.ok(s.today.focusSec - t0 < 1);
   await p.close();
 });
+
+/** 가짜 로컬 사이트를 열고, 확장 프로그램 연결 스크립트가 보내 주는 메시지를 모음 */
+async function openLocal(origin) {
+  await ctx.route(origin + '/**', (route) => route.fulfill({ contentType: 'text/html; charset=utf-8', body: '<!doctype html><title>로컬 페이지</title>' }));
+  const p = await ctx.newPage();
+  await p.addInitScript(() => {
+    window.__got = [];
+    window.addEventListener('message', (e) => { if (e.data?.source === 'build-ext') window.__got.push(e.data); });
+  });
+  await p.goto(origin + '/');
+  return p;
+}
+
+test('보안: 다른 포트의 로컬 페이지에는 연결 스크립트가 들어가지 않아 계정을 바꿀 수 없음', async () => {
+  const before = (await status()).profile;
+  const p = await openLocal('http://localhost:5173');
+  assert.equal(await p.evaluate(() => document.documentElement.dataset.buildExt), undefined);
+  await p.evaluate(() => window.postMessage({ source: 'build-site', type: 'link', account: { token: 'evil', userId: 'evil', school: '해킹대학교', nickname: 'x' } }, location.origin));
+  await sleep(800);
+  assert.deepEqual((await status()).profile, before);
+  await p.close();
+});
+
+test('보안: 사이트로 보내는 상태에는 API 키·토큰 같은 설정이 들어 있지 않음', async () => {
+  await send({ type: 'set', data: { settings: { ...(await send({ type: 'state' })).settings, aiKey: 'sk-ant-secret' } } });
+  const p = await openLocal('http://localhost:8787');
+  await sleep(2500);
+  const got = await p.evaluate(() => window.__got);
+  assert.ok(got.some((m) => m.type === 'status'), '연결 스크립트 상태를 받지 못함');
+  const text = JSON.stringify(got);
+  assert.ok(!text.includes('sk-ant-secret'), 'API 키가 페이지로 나감');
+  await send({ type: 'set', data: { settings: { ...(await send({ type: 'state' })).settings, aiKey: '' } } });
+  await p.close();
+});

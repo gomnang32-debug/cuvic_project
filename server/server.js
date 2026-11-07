@@ -11,7 +11,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { buildLeague, ranked, userScore, SCHOOLS, DEPTS } from '../extension/lib/sim.js';
-import { dateKey } from '../extension/lib/util.js';
+import { dateKey, kstMidnight } from '../extension/lib/util.js';
 import { resolveSchool, norm } from '../extension/lib/schools.js';
 
 const DIR = path.dirname(fileURLToPath(import.meta.url));
@@ -20,6 +20,8 @@ const HOST = process.env.HOST || (process.argv.includes('--lan') ? '0.0.0.0' : '
 const DEMO = process.env.DEMO !== '0';
 const DB_FILE = path.join(process.env.DATA_DIR || path.join(DIR, 'data'), 'db.json');
 const ADMIN_KEY = process.env.ADMIN_KEY || '';
+const TRUST_PROXY = process.env.TRUST_PROXY === '1'; // Render처럼 프록시 뒤에서 돌 때만 x-forwarded-for를 믿음
+const REGISTER_LIMIT = Number(process.env.REGISTER_LIMIT || 20); // IP 하나당 1시간에 가입 가능한 계정 수
 const ROOT = path.join(DIR, '..');
 const STATIC = [
   // [URL 접두어, 실제 폴더]  — 사이트는 확장 프로그램과 같은 라이브러리·스타일을 그대로 씀
@@ -31,7 +33,11 @@ const STATIC = [
 const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.png': 'image/png', '.svg': 'image/svg+xml', '.json': 'application/json; charset=utf-8', '.ico': 'image/x-icon' };
 
 // ---------- 저장소 (JSON 파일) ----------
-const EMPTY = () => ({ users: {}, days: {}, events: {}, ranks: {}, schools: { approved: {}, requests: {} } });
+// 사용자 ID·학교 이름처럼 밖에서 들어온 문자열을 키로 쓰는 객체는 프로토타입 없는 객체로 둠
+// ('__proto__'·'constructor' 같은 키로 Object.prototype을 건드리지 못하게)
+const dict = (o = {}) => Object.assign(Object.create(null), o);
+const own = (o, k) => typeof k === 'string' && Object.hasOwn(o, k);
+const EMPTY = () => ({ users: dict(), days: dict(), events: dict(), ranks: dict(), schools: { approved: dict(), requests: dict() } });
 let db = EMPTY();
 if (process.argv.includes('--reset')) {
   fs.mkdirSync(path.dirname(DB_FILE), { recursive: true });
@@ -41,7 +47,11 @@ if (process.argv.includes('--reset')) {
 try {
   db = { ...db, ...JSON.parse(fs.readFileSync(DB_FILE, 'utf8')) };
 } catch {}
-db.schools ||= { approved: {}, requests: {} };
+db.schools ||= {};
+for (const k of ['users', 'days', 'events', 'ranks']) db[k] = dict(db[k]);
+for (const k of Object.keys(db.days)) db.days[k] = dict(db.days[k]);
+db.schools.approved = dict(db.schools.approved);
+db.schools.requests = dict(db.schools.requests);
 let saveTimer = null;
 function save() {
   clearTimeout(saveTimer);
@@ -101,7 +111,7 @@ function pushEvent(date, school, text) {
 
 function league(date, q = {}) {
   const now = Date.now();
-  const u = q.userId && db.users[q.userId];
+  const u = own(db.users, q.userId) ? db.users[q.userId] : null;
   const school = u ? u.school : q.school && canonicalSchool(q.school);
   const status = school ? schoolStatus(school) : null;
   const lg = buildLeague({ date, now, demo: DEMO, real: realUsers(date, now), school: status === 'ok' ? school : undefined, dept: u ? u.dept : q.dept, userId: q.userId, events: db.events[date] || [] });
@@ -141,15 +151,38 @@ function body(req) {
   });
 }
 function auth(b) {
+  if (!own(db.users, b.userId) || typeof b.token !== 'string') return null;
   const u = db.users[b.userId];
-  return u && u.token === b.token ? u : null;
+  const a = Buffer.from(String(u.token)), t = Buffer.from(b.token);
+  return a.length === t.length && crypto.timingSafeEqual(a, t) ? u : null;
 }
+
+// ---------- 가입 횟수 제한 (계정을 잔뜩 만들어 학교 점수를 올리는 것 방지) ----------
+const joins = new Map(); // ip → [가입 시각…]
+function joinAllowed(ip, now = Date.now()) {
+  const recent = (joins.get(ip) || []).filter((t) => now - t < 3600 * 1000);
+  if (recent.length >= REGISTER_LIMIT) return false;
+  recent.push(now);
+  joins.set(ip, recent);
+  return true;
+}
+function clientIp(req) {
+  if (TRUST_PROXY && req.headers['x-forwarded-for']) return String(req.headers['x-forwarded-for']).split(',')[0].trim();
+  return req.socket.remoteAddress || '?';
+}
+
+// ---------- 기록 상한 ----------
+// 늘어난 순공은 '지난 보고 이후 실제로 흐른 시간'까지만 인정. 통신 지연을 감안한 여유(GRACE)는
+// 요청마다 새로 생기지 않고 잔고처럼 쓰면 줄고, 흐른 시간의 10%씩만 다시 찬다.
+// (예전에는 요청마다 +90초가 붙어서 1초에 한 번 보내면 1초에 91초씩 늘릴 수 있었음)
+const GRACE = 90;
 
 const routes = {
   'GET /api/health': () => ({ ok: true, demo: DEMO, users: Object.keys(db.users).length }),
   'GET /api/schools': () => ({ schools: SCHOOLS, depts: DEPTS }),
 
-  'POST /api/register': (b) => {
+  'POST /api/register': (b, _q, req) => {
+    if (!joinAllowed(clientIp(req))) return [429, { error: '가입 요청이 너무 많아요. 잠시 뒤에 다시 해 주세요' }];
     const school = canonicalSchool(b.school), dept = clean(b.dept), nickname = clean(b.nickname, 12);
     if (!school || !nickname) return [400, { error: '학교와 닉네임이 필요해요' }];
     const userId = crypto.randomUUID();
@@ -186,13 +219,17 @@ const routes = {
     const now = Date.now();
     const date = dateKey(now);
     if (b.date !== date) return { ok: true, ignored: 'date' }; // 지난 날짜는 받지 않음
-    const day = (db.days[date] ||= {});
-    // 오늘 첫 보고면 자정 이후 흐른 시간까지 인정 (서버가 꺼져 있던 동안의 공부도 반영)
-    const midnight = new Date(now).setHours(0, 0, 0, 0);
-    const prev = day[b.userId] || { focusSec: 0, combos: 0, distractions: 0, lastSeen: midnight, studying: false };
-    // 가벼운 부정 방지: 지난 보고 이후 흐른 시간보다 많이 늘 수 없음
-    const allowed = prev.focusSec + (now - prev.lastSeen) / 1000 + 90;
-    const focusSec = Math.max(prev.focusSec, Math.min(Number(b.focusSec) || 0, allowed, 86400));
+    const day = (db.days[date] ||= dict());
+    // 오늘 첫 보고면 (한국 시간) 자정 이후 흐른 시간까지 인정 (서버가 꺼져 있던 동안의 공부도 반영)
+    // 단, 가입하기 전 시간은 인정하지 않음
+    const start = Math.max(kstMidnight(now), u.createdAt || 0);
+    const prev = day[b.userId] || { focusSec: 0, combos: 0, distractions: 0, lastSeen: start, studying: false, grace: GRACE };
+    const grace = prev.grace ?? GRACE;
+    const elapsed = Math.max(0, now - prev.lastSeen) / 1000;
+    const want = Math.min(Math.max(0, Number(b.focusSec) || 0), 86400) - prev.focusSec;
+    const inc = Math.max(0, Math.min(want, elapsed + grace));
+    const nextGrace = Math.min(GRACE, grace - Math.max(0, inc - elapsed) + elapsed * 0.1);
+    const focusSec = prev.focusSec + inc;
     const combos = Math.max(prev.combos, Math.min(Number(b.combos) || 0, Math.floor(focusSec / 1500)));
     if (combos > prev.combos) pushEvent(date, u.school, `${u.nickname}님이 25분 집중 콤보 달성 · +${(combos - prev.combos) * 5}점`);
     if (b.studying && !prev.studying) pushEvent(date, u.school, `${u.nickname}님이 공부 모드를 켰어요`);
@@ -203,7 +240,7 @@ const routes = {
       if (sum > focusSec + 60) hours = hours.map((x) => (x * focusSec) / sum);
       hours = hours.map((x) => Math.round(x));
     }
-    day[b.userId] = { focusSec, combos, distractions: Math.max(0, Math.min(999, Number(b.distractions) || 0)), studying: !!b.studying, lastSeen: now, hours, via: b.via === 'ext' ? 'ext' : 'web' };
+    day[b.userId] = { focusSec, combos, distractions: Math.max(0, Math.min(999, Number(b.distractions) || 0)), studying: !!b.studying, lastSeen: now, grace: nextGrace, hours, via: b.via === 'ext' ? 'ext' : 'web' };
     checkOvertakes(date);
     save();
     return { ok: true, score: userScore(focusSec, combos) };
@@ -240,7 +277,8 @@ const routes = {
   },
 
   'GET /api/league': (_, q) => {
-    const date = q.get('date') || dateKey();
+    const d = q.get('date');
+    const date = d && /^\d{4}-\d{2}-\d{2}$/.test(d) ? d : dateKey();
     return league(date, { school: q.get('school') || undefined, dept: q.get('dept') || undefined, userId: q.get('userId') || undefined });
   },
 };
@@ -263,7 +301,7 @@ const server = http.createServer(async (req, res) => {
   if (fn) {
     try {
       const b = req.method === 'POST' ? await body(req) : {};
-      const out = fn(b, url.searchParams);
+      const out = fn(b, url.searchParams, req);
       return Array.isArray(out) ? sendJSON(res, out[0], out[1]) : sendJSON(res, 200, out);
     } catch (e) {
       console.error(e);

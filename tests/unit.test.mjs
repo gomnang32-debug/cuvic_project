@@ -86,3 +86,25 @@ test('FR6 점수: 순공 1분 = 1점, 25분 콤보마다 +5점', () => {
   assert.equal(userScore(60 * 60, 0), 60);
   assert.equal(userScore(60 * 60, 2), 70);
 });
+
+test('KST 기준 날짜: 기기·서버 시간대와 상관없이 한국 시간으로 날짜·요일·시를 셈', async () => {
+  const { hourOf, kstMidnight } = await import('../extension/lib/util.js');
+  // 2026-11-06 15:30 UTC = 2026-11-07(토) 00:30 KST
+  const t = Date.UTC(2026, 10, 6, 15, 30);
+  assert.equal(dateKey(t), '2026-11-07');
+  assert.equal(hourOf(t), 0);
+  assert.equal(kstMidnight(t), Date.UTC(2026, 10, 6, 15, 0));
+  // 그 주의 월요일 0시(KST) = 2026-11-02 00:00 KST = 11-01 15:00 UTC
+  assert.equal(weekStart(t).getTime(), Date.UTC(2026, 10, 1, 15, 0));
+  assert.equal(dateKey(weekStart(t)), '2026-11-02');
+  // 월요일 0시 직전은 지난주
+  assert.equal(dateKey(weekStart(Date.UTC(2026, 10, 1, 14, 59))), '2026-10-26');
+});
+
+test('AI 판별: 애매한 사이트만 보내고, 검색 결과·처음 보는 사이트는 보내지 않음', () => {
+  const s = st({ settings: { serverUrl: 'http://localhost:8787', aiKey: 'sk-test' } });
+  assert.equal(classify('https://www.youtube.com/results?search_query=비밀검색어', '비밀검색어 - YouTube', s).needsAI, undefined);
+  assert.equal(classify('https://www.google.com/search?q=비밀검색어', '비밀검색어 - Google 검색', s).needsAI, undefined);
+  assert.equal(classify('https://unknown-blog.example/post/1', '아무 제목', s).needsAI, undefined);
+  assert.equal(classify('https://www.youtube.com/watch?v=c', '아무 제목', s).needsAI, true);
+});

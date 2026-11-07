@@ -4,7 +4,7 @@
 import { createDash, VIEW_TITLES } from '/lib/dash-core.js';
 import { resolveSchool, searchSchools, ALL_SCHOOLS } from '/lib/schools.js';
 import { DEPTS, ranked, userScore } from '/lib/sim.js';
-import { dateKey, pad, hms, dur, fmtNum } from '/lib/util.js';
+import { dateKey, pad, hms, dur, fmtNum, hourOf } from '/lib/util.js';
 import { weekReport, defaultSemesterStart, TARGET_HOURS } from '/lib/grade.js';
 
 const $ = (s, el = document) => el.querySelector(s);
@@ -65,6 +65,7 @@ window.addEventListener('message', (e) => {
     ext = { present: true, status: m.data, at: Date.now() };
     // 확장 프로그램이 재기 시작하면 웹 타이머는 내려놓음 (두 곳에서 같이 재지 않게)
     if (extLinked() && timer.running) {
+      sendBeat(false); // 지금까지 웹에서 잰 기록을 서버에 남겨야 확장 프로그램이 그 값부터 이어서 잼
       timer.running = false; timer.awaySince = null; saveTimer();
       if (m.data.state === 'off') postExt('toggle', { on: true }); // 웹에서 켜 둔 공부를 확장 프로그램이 이어받음
     }
@@ -107,7 +108,7 @@ function comboNow() { return extLinked() ? ext.status.comboSec || 0 : timer.comb
 
 function credit(dt, now) {
   const d = today();
-  const h = new Date(now).getHours();
+  const h = hourOf(now);
   d.focusSec += dt;
   d.hours[h] += dt;
   timer.comboSec += dt;
@@ -185,8 +186,29 @@ window.addEventListener('pagehide', () => {
   if (account && !extLinked()) navigator.sendBeacon?.('/api/heartbeat', JSON.stringify(hbBody(false)));
 });
 
+/** 서버에 있는 오늘 기록이 더 크면 그 값부터 이어서 잼 (확장 프로그램·다른 기기에서 잰 시간이 사라지지 않게) */
+function baseline() {
+  const s = serverDays[dateKey()];
+  if (!s) return;
+  const d = today();
+  if ((s.focusSec || 0) > d.focusSec) {
+    d.focusSec = s.focusSec;
+    if (Array.isArray(s.hours) && s.hours.length === 24) {
+      let hrs = d.hours.map((x, i) => Math.max(x, Number(s.hours[i]) || 0));
+      const sum = hrs.reduce((a, x) => a + x, 0);
+      if (sum > d.focusSec) hrs = hrs.map((x) => (x * d.focusSec) / sum);
+      d.hours = hrs;
+    }
+  }
+  d.combos = Math.max(d.combos, s.combos || 0);
+  d.distractions = Math.max(d.distractions, s.distractions || 0);
+  saveDays();
+}
+
 function start() {
   if (extLinked()) return postExt('toggle', { on: true });
+  baseline();
+  loadMe().then(() => { if (timer.running) baseline(); });
   timer.running = true;
   timer.lastTs = Date.now();
   timer.lastInput = Date.now();
@@ -210,9 +232,13 @@ function hbBody(studying) {
   const d = today();
   return { userId: account.userId, token: account.token, date: dateKey(), focusSec: Math.floor(d.focusSec), combos: d.combos, distractions: d.distractions, hours: d.hours.map(Math.round), studying, via: 'web' };
 }
-async function heartbeat() {
+async function sendBeat(studying) {
+  if (!account) return;
+  try { await api('/api/heartbeat', hbBody(studying)); } catch (e) { if (e.status === 401) logout(true); }
+}
+function heartbeat() {
   if (!account || extLinked()) return;
-  try { await api('/api/heartbeat', hbBody(timer.running && isActive() && !timer.checking)); } catch (e) { if (e.status === 401) logout(true); }
+  return sendBeat(timer.running && isActive() && !timer.checking);
 }
 async function loadMe() {
   if (!account) return;

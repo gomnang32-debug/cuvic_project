@@ -4,7 +4,7 @@ import { load, save, emptyDay } from './lib/store.js';
 import { classify, isAmbiguous, labelOf } from './lib/rules.js';
 import { aiClassify } from './lib/ai.js';
 import * as api from './lib/api.js';
-import { dateKey, dur, clock } from './lib/util.js';
+import { dateKey, dur, clock, hourOf } from './lib/util.js';
 import { weekReport } from './lib/grade.js';
 import { ranked, userScore } from './lib/sim.js';
 
@@ -13,6 +13,9 @@ const DISTRACT_COUNT_SEC = 30; // 30초 넘게 머물면 이탈 1회
 const DISTRACT_ALERT_SEC = 120; // 2분 넘으면 알림
 const ALERT_COOLDOWN = 10 * 60 * 1000;
 const MAX_GAP = 75; // 이보다 긴 공백(절전 등)은 인정하지 않음
+const MEDIA_MAX = 60 * 60 * 1000; // 입력 없이 강의 소리만 나는 상태는 마지막 입력 후 최대 60분까지만 인정
+const AI_CACHE_DAYS = 30; // AI 판별 결과(도메인|제목)는 30일 뒤 지움
+const SITE_PORT_ORIGIN = /^http:\/\/(localhost|127\.0\.0\.1):8787$/; // manifest의 기본 사이트 주소
 
 let ST = null;
 let queue = Promise.resolve();
@@ -47,14 +50,20 @@ function stateNow() {
   const r = rt();
   if (!ST.settings.studyMode) return 'off';
   if (r.idle === 'locked') return 'away';
-  if (r.idle === 'idle' && !(r.audible && r.kind === 'study')) return 'away';
+  if (r.idle === 'idle' && !mediaKeepsGoing()) return 'away';
   if (!r.focused) return 'outside';
   return r.kind || 'neutral';
 }
 
+/** 입력은 없지만 공부 탭에서 강의 소리가 나는 중이고, 마지막 입력 후 MEDIA_MAX가 안 지났는지 */
+function mediaKeepsGoing(now = Date.now()) {
+  const r = rt();
+  return !!(r.audible && r.kind === 'study' && r.idleFrom && now - r.idleFrom < MEDIA_MAX);
+}
+
 function credit(sec, now) {
   const d = day(dateKey(now));
-  const h = new Date(now).getHours();
+  const h = hourOf(now);
   d.focusSec += sec;
   d.hours[h] += sec;
   rt().recent.push([now, sec, h, dateKey(now)]);
@@ -112,6 +121,10 @@ function checkAlerts(now, s) {
       { title: '이것도 공부예요' },
     ]);
   }
+  if (s === 'away' && r.idle === 'idle' && r.audible && r.kind === 'study' && !r.mediaCapNotified) {
+    r.mediaCapNotified = true;
+    notify('away', '입력 없이 60분이 지나 측정을 멈췄어요', '강의를 계속 듣고 있다면 키보드나 마우스를 한 번 움직여 주세요.');
+  }
   const goalSec = ST.settings.goalMin * 60;
   if (n.goal && !d.goalNotified && d.focusSec >= goalSec) {
     d.goalNotified = true;
@@ -130,6 +143,16 @@ function notify(id, title, message, buttons = []) {
     priority: 2,
     requireInteraction: id === 'distract',
   });
+}
+
+/** 창 포커스를 이벤트에만 맡기지 않고 실제 상태를 다시 읽음 (이벤트를 놓쳤거나 백그라운드로 시작된 경우 대비) */
+async function checkFocus() {
+  try {
+    const w = await chrome.windows.getLastFocused();
+    rt().focused = !!w?.focused && w.state !== 'minimized';
+  } catch {
+    rt().focused = false; // 열린 창이 없음
+  }
 }
 
 /** 활성 탭 다시 읽고 판별 */
@@ -234,7 +257,10 @@ function setup() {
   return serial(async () => {
     chrome.idle.setDetectionInterval(Math.max(15, ST.settings.idleMin * 60));
     rt().lastTs = Date.now();
+    pruneAiCache();
+    await checkFocus();
     await refreshTab();
+    pullToday();
     await persist();
     await registerBridge();
   });
@@ -266,12 +292,54 @@ async function siteReachable() {
     return false;
   }
 }
+/** 서버에 있는 오늘 기록이 더 크면 그 값부터 이어서 잼.
+ *  (웹 타이머로 재다가 확장 프로그램으로 넘어오거나, 다른 기기에서 공부한 경우
+ *   서버는 큰 값만 남기므로 0부터 다시 재면 그만큼이 사라짐) */
+async function pullToday() {
+  if (!ST?.profile?.token) return;
+  let r;
+  try { r = await api.fetchMe(ST); } catch { return; }
+  const k = dateKey();
+  const s = r?.days?.[k];
+  if (!s) return;
+  await serial(async () => {
+    const d = day(k);
+    if ((s.focusSec || 0) > d.focusSec) {
+      d.focusSec = s.focusSec;
+      if (Array.isArray(s.hours) && s.hours.length === 24) {
+        let hrs = d.hours.map((x, i) => Math.max(x, Number(s.hours[i]) || 0));
+        const sum = hrs.reduce((a, x) => a + x, 0);
+        if (sum > d.focusSec) hrs = hrs.map((x) => (x * d.focusSec) / sum);
+        d.hours = hrs;
+      }
+    }
+    d.combos = Math.max(d.combos, s.combos || 0);
+    d.distractions = Math.max(d.distractions, s.distractions || 0);
+    updateBadge();
+    await persist();
+  });
+}
+
+function pruneAiCache(now = Date.now()) {
+  for (const [k, v] of Object.entries(ST.aiCache || {})) if (!v?.ts || now - v.ts > AI_CACHE_DAYS * 86400000) delete ST.aiCache[k];
+}
+
 /** 사이트 계정을 확장 프로그램 계정으로 씀 */
 function adopt(account, origin) {
   ST.profile = { school: account.school, dept: account.dept || '', nickname: account.nickname, userId: account.userId, token: account.token, schoolStatus: account.schoolStatus, online: true };
   if (origin) ST.settings.serverUrl = origin;
   if (account.ranking === false) ST.settings.ranking = false;
+  pullToday(); // 사이트에서 재던 오늘 기록부터 이어서
 }
+/** 연결 스크립트가 도는 사이트 중 믿을 수 있는 곳: 설정된 서버 주소, 또는 기본 로컬 주소(8787) */
+const trustedSite = (o) => !!o && (o === originOf(ST.settings.serverUrl) || SITE_PORT_ORIGIN.test(o));
+/** 사이트에 넘기는 상태: 토큰·API 키 같은 설정은 빼고 화면에 필요한 것만 */
+function pageSnapshot() {
+  const s = snapshot();
+  const p = s.profile;
+  return { ...s, settings: undefined, profile: p ? { userId: p.userId, nickname: p.nickname, school: p.school, dept: p.dept } : null };
+}
+const PAGE_TYPES = new Set(['status', 'siteHello', 'siteLink', 'toggle']);
 
 chrome.runtime.onInstalled.addListener(async (info) => {
   await setup();
@@ -285,7 +353,10 @@ chrome.runtime.onStartup.addListener(setup);
 chrome.alarms.onAlarm.addListener((a) =>
   serial(async () => {
     advance();
-    if (a.name === 'tick') await refreshTab();
+    if (a.name === 'tick') {
+      await checkFocus();
+      await refreshTab();
+    }
     if (a.name === 'sync') await sync();
     updateBadge();
     await persist();
@@ -314,6 +385,7 @@ chrome.idle.onStateChanged.addListener((state) =>
     advance(now);
     const r = rt();
     if (state !== 'active') {
+      r.idleFrom ||= now - ST.settings.idleMin * 60 * 1000; // 마지막 입력 시각
       const keepMedia = state === 'idle' && r.audible && r.kind === 'study';
       if (!keepMedia) {
         // 마지막 입력 시각 이후 더한 시간을 되돌림
@@ -334,6 +406,8 @@ chrome.idle.onStateChanged.addListener((state) =>
       }
     } else {
       r.lastInputAt = null;
+      r.idleFrom = null;
+      r.mediaCapNotified = false;
     }
     r.idle = state;
     updateBadge();
@@ -439,22 +513,32 @@ function snapshot() {
 
 // ---------- 화면(팝업·설정·대시보드)과 통신 ----------
 chrome.runtime.onMessage.addListener((msg, sender, reply) => {
+  // 확장 프로그램 자체 화면(팝업·설정·대시보드)이 아니라 웹페이지(연결 스크립트)에서 온 메시지인지
+  const fromPage = !(sender.url || '').startsWith(chrome.runtime.getURL(''));
+  const pageOrigin = fromPage ? sender.origin || originOf(sender.url) : null;
   serial(async () => {
+    if (fromPage) {
+      // 페이지가 적어 보낸 origin은 믿지 않고 브라우저가 알려 준 실제 주소로 판단
+      if (!trustedSite(pageOrigin) || !PAGE_TYPES.has(msg.type)) return { error: 'forbidden' };
+      msg = { ...msg, origin: pageOrigin };
+    }
     switch (msg.type) {
       case 'status':
         advance();
         if (msg.refresh) await refreshTab();
         await persist();
-        return snapshot();
+        return fromPage ? pageSnapshot() : snapshot();
       case 'toggle': {
         advance();
         ST.settings.studyMode = msg.on ?? !ST.settings.studyMode;
         rt().lastTs = Date.now();
         rt().comboSec = 0;
+        await checkFocus();
         await refreshTab();
         await persist();
+        if (ST.settings.studyMode) pullToday(); // 다른 곳(웹 타이머·다른 기기)에서 잰 오늘 기록부터 이어서
         sync().then(persist);
-        return snapshot();
+        return fromPage ? pageSnapshot() : snapshot();
       }
       case 'correct':
         await correct(msg.as);

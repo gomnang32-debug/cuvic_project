@@ -70,6 +70,10 @@ export function titleVerdict(title = '') {
   return null;
 }
 
+/** 검색 결과 페이지: 제목에 검색어가 그대로 들어 있어서 밖(AI)으로 보내지 않음 */
+const SEARCH_URL = /[?&#](q|query|search_query|wd|keyword)=|\/search\b|\/results\b/i;
+export const isSearchPage = (url = '') => SEARCH_URL.test(url);
+
 export const tabKey = (domain, title) => `${domain}|${(title || '').trim().slice(0, 120)}`;
 
 /**
@@ -98,7 +102,8 @@ export function classify(url, title, st) {
   if (cached) return { ...base, kind: cached.v, source: cached.by };
 
   const ambiguous = inList(domain, AMBIGUOUS);
-  if (st.settings.aiKey) return { ...base, kind: 'pending', source: 'AI 판별 중', needsAI: true };
+  // AI에는 애매한 사이트(유튜브 등)의 영상·글 제목만 보냄. 처음 보는 사이트 전부나 검색 결과는 보내지 않음
+  if (st.settings.aiKey && ambiguous && !isSearchPage(url)) return { ...base, kind: 'pending', source: 'AI 판별 중', needsAI: true };
 
   const v = titleVerdict(title);
   if (v) return { ...base, kind: v, source: '제목 판별' };

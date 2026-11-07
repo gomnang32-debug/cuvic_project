@@ -1,25 +1,38 @@
 // 공용 유틸 — 확장 프로그램과 서버(Node)가 함께 씀
 export const pad = (n) => String(n).padStart(2, '0');
 
-export function dateKey(d = new Date()) {
-  d = new Date(d);
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+// 날짜·주·시간대는 기기나 서버의 시간대와 상관없이 항상 한국 시간(UTC+9, 서머타임 없음) 기준.
+// (Render 서버는 UTC, 해외에서 쓰는 노트북은 현지 시간이라 로컬 시간을 쓰면 날짜가 어긋남)
+const KST = 9 * 3600 * 1000;
+const DAY = 86400 * 1000;
+/** 한국 시간으로 본 연·월·일·요일·시 */
+function kst(t) {
+  const x = new Date(new Date(t).getTime() + KST);
+  return { y: x.getUTCFullYear(), m: x.getUTCMonth(), d: x.getUTCDate(), wd: x.getUTCDay(), h: x.getUTCHours() };
 }
+
+export function dateKey(d = new Date()) {
+  const k = kst(d);
+  return `${k.y}-${pad(k.m + 1)}-${pad(k.d)}`;
+}
+/** 'YYYY-MM-DD' → 그날 한국 시간 0시 */
 export function parseKey(key) {
   const [y, m, d] = key.split('-').map(Number);
-  return new Date(y, m - 1, d);
+  return new Date(Date.UTC(y, m - 1, d) - KST);
 }
+/** 한국 시간 기준 몇 시(0~23) */
+export const hourOf = (t = Date.now()) => kst(t).h;
+/** 한국 시간 기준 요일 (0=일 … 6=토) */
+export const weekdayOf = (t = Date.now()) => kst(t).wd;
+/** 그날 한국 시간 0시 (ms) */
+export const kstMidnight = (t = Date.now()) => parseKey(dateKey(t)).getTime();
 export function addDays(d, n) {
-  const x = new Date(d);
-  x.setDate(x.getDate() + n);
-  return x;
+  return new Date(new Date(d).getTime() + n * DAY);
 }
-/** 월요일 0시 */
+/** 한국 시간 월요일 0시 */
 export function weekStart(d = new Date()) {
-  const x = new Date(d);
-  x.setHours(0, 0, 0, 0);
-  x.setDate(x.getDate() - ((x.getDay() + 6) % 7));
-  return x;
+  const t = new Date(d).getTime();
+  return new Date(kstMidnight(t) - ((weekdayOf(t) + 6) % 7) * DAY);
 }
 export const weekKey = (d) => dateKey(weekStart(d));
 
