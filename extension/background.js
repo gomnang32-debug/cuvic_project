@@ -6,6 +6,7 @@ import { aiClassify } from './lib/ai.js';
 import * as api from './lib/api.js';
 import { dateKey, dur, clock, hourOf } from './lib/util.js';
 import { weekReport } from './lib/grade.js';
+import { mergeToday, deduct } from './lib/daysync.js';
 import { ranked, userScore } from './lib/sim.js';
 
 const COMBO_SEC = 25 * 60;
@@ -292,7 +293,7 @@ async function siteReachable() {
     return false;
   }
 }
-/** 서버에 있는 오늘 기록이 더 크면 그 값부터 이어서 잼.
+/** 서버에 있는 오늘 기록의 총시간(순공 + 자리 비움으로 뺀 시간)이 더 크면 그 값부터 이어서 잼.
  *  (웹 타이머로 재다가 확장 프로그램으로 넘어오거나, 다른 기기에서 공부한 경우
  *   서버는 큰 값만 남기므로 0부터 다시 재면 그만큼이 사라짐) */
 async function pullToday() {
@@ -303,18 +304,7 @@ async function pullToday() {
   const s = r?.days?.[k];
   if (!s) return;
   await serial(async () => {
-    const d = day(k);
-    if ((s.focusSec || 0) > d.focusSec) {
-      d.focusSec = s.focusSec;
-      if (Array.isArray(s.hours) && s.hours.length === 24) {
-        let hrs = d.hours.map((x, i) => Math.max(x, Number(s.hours[i]) || 0));
-        const sum = hrs.reduce((a, x) => a + x, 0);
-        if (sum > d.focusSec) hrs = hrs.map((x) => (x * d.focusSec) / sum);
-        d.hours = hrs;
-      }
-    }
-    d.combos = Math.max(d.combos, s.combos || 0);
-    d.distractions = Math.max(d.distractions, s.distractions || 0);
+    if (!mergeToday(day(k), s)) return;
     updateBadge();
     await persist();
   });
@@ -393,11 +383,8 @@ chrome.idle.onStateChanged.addListener((state) =>
         let back = 0;
         for (const [t, sec, h, k] of r.recent) {
           const part = Math.min(sec, Math.max(0, (t - cutoff) / 1000));
-          if (part > 0 && ST.days[k]) {
-            ST.days[k].focusSec = Math.max(0, ST.days[k].focusSec - part);
-            ST.days[k].hours[h] = Math.max(0, ST.days[k].hours[h] - part);
-            back += part;
-          }
+          // 뺀 시간은 awaySec으로 따로 남겨서 서버 기록에서도 빠지게 함
+          if (part > 0 && ST.days[k]) back += deduct(ST.days[k], part, h);
         }
         r.recent = [];
         r.lastInputAt = cutoff;
@@ -503,7 +490,7 @@ function snapshot() {
     pendingSec: (r.key && r.pendingMap[r.key]) || 0,
     lastInputAt: r.lastInputAt || null,
     comboSec: r.comboSec || 0,
-    today: { focusSec: today.focusSec, distractions: today.distractions, combos: today.combos, score: userScore(today.focusSec, today.combos) },
+    today: { focusSec: today.focusSec, awaySec: today.awaySec || 0, distractions: today.distractions, combos: today.combos, score: userScore(today.focusSec, today.combos) },
     week: { grade: w.grade, total: w.total, hours: w.hours, projectedHours: w.projectedHours },
     school,
     canGoBack: r.lastStudyTabId != null && r.lastStudyTabId !== r.tabId,

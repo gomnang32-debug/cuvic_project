@@ -6,6 +6,7 @@ import { resolveSchool, searchSchools, ALL_SCHOOLS } from '/lib/schools.js';
 import { DEPTS, ranked, userScore } from '/lib/sim.js';
 import { dateKey, pad, hms, dur, fmtNum, hourOf } from '/lib/util.js';
 import { weekReport, defaultSemesterStart, TARGET_HOURS } from '/lib/grade.js';
+import { mergeToday, deduct, gross } from '/lib/daysync.js';
 
 const $ = (s, el = document) => el.querySelector(s);
 const $$ = (s, el = document) => [...el.querySelectorAll(s)];
@@ -18,7 +19,7 @@ const LS = {
 const K = { account: 'build-account', settings: 'build-web-settings', days: 'build-web-days', timer: 'build-timer' };
 const COMBO = 1500;
 const AWAY_COUNT = 30; // 30초 넘게 비우면 이탈 1회
-const emptyDay = () => ({ focusSec: 0, hours: new Array(24).fill(0), distractions: 0, combos: 0 });
+const emptyDay = () => ({ focusSec: 0, awaySec: 0, hours: new Array(24).fill(0), distractions: 0, combos: 0 });
 
 let account = LS.get(K.account, null);
 let settings = { goalMin: 240, checkMin: 25, semesterStart: defaultSemesterStart(), ...LS.get(K.settings, {}) };
@@ -26,7 +27,7 @@ let localDays = LS.get(K.days, {});
 let serverDays = {};
 let LG = null;
 let ext = { present: false, status: null, at: 0 };
-let timer = { running: false, comboSec: 0, ...LS.get(K.timer, {}), lastTs: Date.now(), lastInput: Date.now(), awaySince: null, checking: false };
+let timer = { running: false, comboSec: 0, ...LS.get(K.timer, {}), lastTs: Date.now(), lastInput: Date.now(), awaySince: null, checking: false, recent: [] };
 
 // ---------- 공통 ----------
 function toast(t, ms = 2400) {
@@ -87,13 +88,14 @@ function today() {
 function allDays() {
   const out = {};
   for (const src of [serverDays, localDays]) {
-    for (const [k, d] of Object.entries(src)) if (!out[k] || d.focusSec > out[k].focusSec) out[k] = d;
+    // 순공은 자리 비움으로 줄 수 있으므로, 어느 쪽이 최신인지는 총시간(순공 + 뺀 시간)으로 비교
+    for (const [k, d] of Object.entries(src)) if (!out[k] || gross(d) > gross(out[k])) out[k] = d;
   }
   if (extLinked()) {
     const k = dateKey();
     const t = ext.status.today;
     const base = out[k] || emptyDay();
-    if (t.focusSec >= base.focusSec) out[k] = { ...base, focusSec: t.focusSec, combos: t.combos, distractions: t.distractions };
+    if (gross(t) >= gross(base)) out[k] = { ...base, focusSec: t.focusSec, awaySec: t.awaySec || 0, combos: t.combos, distractions: t.distractions };
   }
   return out;
 }
@@ -111,6 +113,8 @@ function credit(dt, now) {
   const h = hourOf(now);
   d.focusSec += dt;
   d.hours[h] += dt;
+  // 자리 확인에 답이 없을 때 마지막 입력 이후 더한 시간을 되돌리려고 최근 기록을 남김
+  timer.recent.push([now, dt, h, dateKey(now)]);
   timer.comboSec += dt;
   if (timer.comboSec >= COMBO) {
     timer.comboSec -= COMBO;
@@ -148,6 +152,8 @@ function loop() {
     } else leaveTab(now);
   }
   timer.lastTs = now;
+  const keep = (settings.checkMin + 6) * 60 * 1000; // 자리 확인(25분) + 답 기다림(5분)보다 조금 길게
+  if (timer.recent.length && now - timer.recent[0][0] > keep) timer.recent = timer.recent.filter((x) => now - x[0] < keep);
   if (view === 'study') updateStudy();
   else if (dash) dash.tick();
 }
@@ -156,8 +162,9 @@ function loop() {
 function openCheck() {
   timer.checking = true;
   const m = modal(`<h2>아직 공부 중인가요?</h2><p>${settings.checkMin}분 동안 이 화면에 입력이 없었어요.<br>책이나 노트로 공부 중이었다면 계속을 눌러 주세요. 답이 없으면 5분 뒤 멈춰요.</p><button class="btn go" id="chkYes">계속 공부하기</button><button class="btn line" id="chkNo">여기서 멈추기</button>`);
-  const close = (keep) => {
+  const close = (keep, noAnswer) => {
     clearTimeout(openCheck.t);
+    if (noAnswer) undoSinceLastInput();
     timer.checking = false;
     timer.lastInput = Date.now();
     timer.lastTs = Date.now();
@@ -167,7 +174,19 @@ function openCheck() {
   };
   $('#chkYes', m).onclick = () => close(true);
   $('#chkNo', m).onclick = () => close(false);
-  openCheck.t = setTimeout(() => close(false), 5 * 60 * 1000);
+  openCheck.t = setTimeout(() => close(false, true), 5 * 60 * 1000);
+}
+/** 답이 없으면 자리에 없던 것: 마지막 입력 이후 더한 순공을 빼서 '뺀 시간'으로 옮김 (서버 기록에서도 빠짐) */
+function undoSinceLastInput() {
+  let back = 0;
+  for (const [t, sec, h, k] of timer.recent) {
+    const part = Math.min(sec, Math.max(0, (t - timer.lastInput) / 1000));
+    if (part > 0 && localDays[k]) back += deduct(localDays[k], part, h);
+  }
+  timer.recent = [];
+  timer.comboSec = 0;
+  saveDays();
+  if (back >= 60) toast(`자리에 없던 ${dur(back)}은 순공에서 뺐어요`, 4000);
 }
 
 const markInput = () => { timer.lastInput = Date.now(); };
@@ -186,23 +205,9 @@ window.addEventListener('pagehide', () => {
   if (account && !extLinked()) navigator.sendBeacon?.('/api/heartbeat', JSON.stringify(hbBody(false)));
 });
 
-/** 서버에 있는 오늘 기록이 더 크면 그 값부터 이어서 잼 (확장 프로그램·다른 기기에서 잰 시간이 사라지지 않게) */
+/** 서버에 있는 오늘 기록의 총시간(순공 + 뺀 시간)이 더 크면 그 값부터 이어서 잼 (확장 프로그램·다른 기기에서 잰 시간이 사라지지 않게) */
 function baseline() {
-  const s = serverDays[dateKey()];
-  if (!s) return;
-  const d = today();
-  if ((s.focusSec || 0) > d.focusSec) {
-    d.focusSec = s.focusSec;
-    if (Array.isArray(s.hours) && s.hours.length === 24) {
-      let hrs = d.hours.map((x, i) => Math.max(x, Number(s.hours[i]) || 0));
-      const sum = hrs.reduce((a, x) => a + x, 0);
-      if (sum > d.focusSec) hrs = hrs.map((x) => (x * d.focusSec) / sum);
-      d.hours = hrs;
-    }
-  }
-  d.combos = Math.max(d.combos, s.combos || 0);
-  d.distractions = Math.max(d.distractions, s.distractions || 0);
-  saveDays();
+  if (mergeToday(today(), serverDays[dateKey()])) saveDays();
 }
 
 function start() {
@@ -230,7 +235,7 @@ function stop() {
 // ---------- 서버 ----------
 function hbBody(studying) {
   const d = today();
-  return { userId: account.userId, token: account.token, date: dateKey(), focusSec: Math.floor(d.focusSec), combos: d.combos, distractions: d.distractions, hours: d.hours.map(Math.round), studying, via: 'web' };
+  return { userId: account.userId, token: account.token, date: dateKey(), focusSec: Math.floor(d.focusSec), awaySec: Math.floor(d.awaySec || 0), combos: d.combos, distractions: d.distractions, hours: d.hours.map(Math.round), studying, via: 'web' };
 }
 async function sendBeat(studying) {
   if (!account) return;

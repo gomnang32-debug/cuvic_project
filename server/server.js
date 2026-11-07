@@ -223,14 +223,22 @@ const routes = {
     // 오늘 첫 보고면 (한국 시간) 자정 이후 흐른 시간까지 인정 (서버가 꺼져 있던 동안의 공부도 반영)
     // 단, 가입하기 전 시간은 인정하지 않음
     const start = Math.max(kstMidnight(now), u.createdAt || 0);
-    const prev = day[b.userId] || { focusSec: 0, combos: 0, distractions: 0, lastSeen: start, studying: false, grace: GRACE };
+    const prev = day[b.userId] || { focusSec: 0, awaySec: 0, combos: 0, distractions: 0, lastSeen: start, studying: false, grace: GRACE };
+    // 측정한 총시간(gross) = 순공 + 자리 비움으로 뺀 시간. 둘 다 줄어들지 않는 값이라 상한을 그대로 걸 수 있음.
+    // 순공 = 총시간 − 뺀 시간 → 자리 비움을 나중에 알아채고 뺀 시간도 서버 기록에서 빠짐
+    const num = (x) => Math.max(0, Number(x) || 0);
+    const prevAway = prev.awaySec || 0;
+    const prevGross = prev.focusSec + prevAway;
     const grace = prev.grace ?? GRACE;
     const elapsed = Math.max(0, now - prev.lastSeen) / 1000;
-    const want = Math.min(Math.max(0, Number(b.focusSec) || 0), 86400) - prev.focusSec;
+    const want = Math.min(num(b.focusSec), 86400) + num(b.awaySec) - prevGross;
     const inc = Math.max(0, Math.min(want, elapsed + grace));
     const nextGrace = Math.min(GRACE, grace - Math.max(0, inc - elapsed) + elapsed * 0.1);
-    const focusSec = prev.focusSec + inc;
-    const combos = Math.max(prev.combos, Math.min(Number(b.combos) || 0, Math.floor(focusSec / 1500)));
+    const gross = prevGross + inc;
+    const awaySec = Math.min(gross, Math.max(prevAway, num(b.awaySec)));
+    const focusSec = Math.min(86400, gross - awaySec);
+    // 콤보는 순공으로 가능한 개수까지만 (자리 비움으로 순공이 줄면 그 시간에 쌓인 콤보도 빠짐)
+    const combos = Math.min(Math.floor(focusSec / 1500), Math.max(prev.combos, num(b.combos)));
     if (combos > prev.combos) pushEvent(date, u.school, `${u.nickname}님이 25분 집중 콤보 달성 · +${(combos - prev.combos) * 5}점`);
     if (b.studying && !prev.studying) pushEvent(date, u.school, `${u.nickname}님이 공부 모드를 켰어요`);
     // 시간대별 순공 (0~23시, 초). 합이 순공보다 크면 비율로 줄임
@@ -240,7 +248,7 @@ const routes = {
       if (sum > focusSec + 60) hours = hours.map((x) => (x * focusSec) / sum);
       hours = hours.map((x) => Math.round(x));
     }
-    day[b.userId] = { focusSec, combos, distractions: Math.max(0, Math.min(999, Number(b.distractions) || 0)), studying: !!b.studying, lastSeen: now, grace: nextGrace, hours, via: b.via === 'ext' ? 'ext' : 'web' };
+    day[b.userId] = { focusSec, awaySec, combos, distractions: Math.max(0, Math.min(999, Number(b.distractions) || 0)), studying: !!b.studying, lastSeen: now, grace: nextGrace, hours, via: b.via === 'ext' ? 'ext' : 'web' };
     checkOvertakes(date);
     save();
     return { ok: true, score: userScore(focusSec, combos) };
@@ -253,7 +261,7 @@ const routes = {
     const days = {};
     for (const [date, d] of Object.entries(db.days)) {
       const x = d[b.userId];
-      if (x) days[date] = { focusSec: x.focusSec, distractions: x.distractions || 0, combos: x.combos || 0, hours: x.hours || new Array(24).fill(0), via: x.via };
+      if (x) days[date] = { focusSec: x.focusSec, awaySec: x.awaySec || 0, distractions: x.distractions || 0, combos: x.combos || 0, hours: x.hours || new Array(24).fill(0), via: x.via };
     }
     return { profile: { userId: b.userId, school: u.school, dept: u.dept, nickname: u.nickname, ranking: u.ranking !== false, schoolStatus: schoolStatus(u.school) }, days };
   },

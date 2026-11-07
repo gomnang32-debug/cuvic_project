@@ -108,3 +108,21 @@ test('AI 판별: 애매한 사이트만 보내고, 검색 결과·처음 보는 
   assert.equal(classify('https://unknown-blog.example/post/1', '아무 제목', s).needsAI, undefined);
   assert.equal(classify('https://www.youtube.com/watch?v=c', '아무 제목', s).needsAI, true);
 });
+
+test('기록 이어받기: 자리 비움으로 뺀 시간을 서버의 예전 값으로 되살리지 않음', async () => {
+  const { mergeToday, deduct } = await import('../extension/lib/daysync.js');
+  const blank = () => ({ focusSec: 0, awaySec: 0, hours: new Array(24).fill(0), distractions: 0, combos: 0 });
+  // 확장: 600초 재고 서버에도 600초 보고됨 → 그 뒤 자리 비움으로 300초를 뺌
+  const local = { ...blank(), focusSec: 600, combos: 0 };
+  local.hours[10] = 600;
+  const server = { ...blank(), focusSec: 600 };
+  assert.equal(deduct(local, 300, 10), 300);
+  assert.deepEqual([local.focusSec, local.awaySec, local.hours[10]], [300, 300, 300]);
+  // 공부 모드를 다시 켜서 서버 기록과 맞춰도 600초로 돌아가지 않음 (총시간이 같으므로)
+  assert.equal(mergeToday(local, server), false);
+  assert.equal(local.focusSec, 300);
+  // 다른 기기에서 더 많이 잰 경우(총시간이 더 큼)에는 그 값부터 이어서 잼
+  const other = { ...blank(), focusSec: 1200, awaySec: 60 };
+  assert.equal(mergeToday(local, other), true);
+  assert.deepEqual([local.focusSec, local.awaySec], [1200, 60]);
+});

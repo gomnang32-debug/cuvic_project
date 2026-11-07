@@ -129,3 +129,27 @@ test('가입 횟수 제한: 한 IP에서 1시간에 정해진 수 이상은 가�
     await lim.stop();
   }
 });
+
+test('자리 비움: 확장 프로그램이 나중에 뺀 시간(awaySec)은 서버 순공에서도 빠짐', async () => {
+  const u = (await join('충북대학교', '자리비움')).json;
+  await beat(u, { focusSec: 60, awaySec: 0 });
+  // 자리 비움을 알아채고 40초를 뺌: 순공 20 + 뺀 시간 40 (총시간은 그대로 60)
+  const r = await beat(u, { focusSec: 20, awaySec: 40 });
+  assert.equal(r.status, 200);
+  let d = (await api(srv.url, '/api/me', { userId: u.userId, token: u.token })).json.days[todayKey()];
+  assert.equal(d.focusSec, 20);
+  assert.equal(d.awaySec, 40);
+  // 뺀 시간을 0으로 되돌려 보내도 다시 늘지 않음
+  await beat(u, { focusSec: 60, awaySec: 0 });
+  d = (await api(srv.url, '/api/me', { userId: u.userId, token: u.token })).json.days[todayKey()];
+  assert.equal(d.focusSec, 20);
+});
+
+test('자리 비움: 뺀 시간을 부풀려도 측정 총시간 상한은 그대로 (순공이 늘지 않음)', async () => {
+  const u = (await join('충북대학교', '총시간')).json;
+  await beat(u, { focusSec: 60, awaySec: 0 });
+  await beat(u, { focusSec: 60, awaySec: 99999 });
+  const d = (await api(srv.url, '/api/me', { userId: u.userId, token: u.token })).json.days[todayKey()];
+  assert.ok(d.focusSec + d.awaySec <= 60 + 95, `총시간이 ${d.focusSec + d.awaySec}초`);
+  assert.ok(d.focusSec <= 60);
+});

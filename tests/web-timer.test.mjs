@@ -106,3 +106,25 @@ test('FR6 웹 타이머: 공부한 시간이 서버(학교 대항전)에 보고�
   assert.equal(acc.school, '충북대학교');
   await page.close();
 });
+
+test('FR4 웹 타이머: "아직 공부 중인가요?"에 답이 없으면 마지막 입력 이후 시간은 순공에서 뺌', async () => {
+  const page = await openAndJoin('웹무응답');
+  await page.clock.runFor(25 * 60_000 + 2_000);
+  await page.waitForSelector('#modal:not([hidden]) >> text=아직 공부 중인가요?', { timeout: 3000 });
+  await page.clock.runFor(5 * 60_000 + 2_000);
+  const d = await todayOf(page);
+  // 가입(마지막 입력) 뒤 25분은 자리에 없던 시간 → 순공에서 빠지고 '뺀 시간'으로 옮겨짐
+  assert.ok(d.focusSec <= 5, `답이 없었는데 순공 ${d.focusSec}초가 남음`);
+  assert.ok(d.awaySec >= 24 * 60, `뺀 시간이 ${d.awaySec}초`);
+  await page.close();
+});
+
+test('FR4 웹 타이머: "계속 공부하기"를 누르면 그 시간은 그대로 인정', async () => {
+  const page = await openAndJoin('웹계속');
+  await page.clock.runFor(25 * 60_000 + 2_000);
+  await page.click('#chkYes');
+  const d = await todayOf(page);
+  assert.ok(d.focusSec >= 24 * 60, `계속을 눌렀는데 순공이 ${d.focusSec}초`);
+  assert.ok(!d.awaySec, '계속을 눌렀는데 뺀 시간이 생김');
+  await page.close();
+});

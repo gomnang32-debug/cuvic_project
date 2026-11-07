@@ -21,7 +21,7 @@ export function defaults() {
     corrections: {}, // 도메인 → { study, distract }
     dismissed: {}, // 제안 '나중에' 누른 도메인
     aiCache: {}, // key → { v, by, ts }
-    days: {}, // 'YYYY-MM-DD' → { focusSec, hours[24], distractions, distractSec, combos, firstRank, goalNotified }
+    days: {}, // 'YYYY-MM-DD' → { focusSec, awaySec(자리 비움으로 뺀 시간), hours[24], distractions, distractSec, combos, firstRank, goalNotified }
     rt: {},
     league: null,
   };
@@ -46,5 +46,5 @@ export async function save(st) {
 }
 
 export function emptyDay() {
-  return { focusSec: 0, hours: new Array(24).fill(0), distractions: 0, distractSec: 0, combos: 0, firstRank: null, goalNotified: false };
+  return { focusSec: 0, awaySec: 0, hours: new Array(24).fill(0), distractions: 0, distractSec: 0, combos: 0, firstRank: null, goalNotified: false };
 }
