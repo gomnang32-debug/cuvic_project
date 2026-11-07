@@ -20,6 +20,8 @@ export function parseKey(key) {
   const [y, m, d] = key.split('-').map(Number);
   return new Date(Date.UTC(y, m - 1, d) - KST);
 }
+/** 한국 시간 기준 연·월(1~12)·일 — 화면에 날짜를 보여 줄 때 */
+export const ymd = (t = Date.now()) => { const k = kst(t); return { y: k.y, m: k.m + 1, d: k.d }; };
 /** 한국 시간 기준 몇 시(0~23) */
 export const hourOf = (t = Date.now()) => kst(t).h;
 /** 한국 시간 기준 요일 (0=일 … 6=토) */

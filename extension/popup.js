@@ -1,4 +1,4 @@
-import { pad, dur, hms } from './lib/util.js';
+import { pad, dur, hms, hourOf } from './lib/util.js';
 import { TARGET_HOURS } from './lib/grade.js';
 
 const $ = (s) => document.querySelector(s);
@@ -28,7 +28,7 @@ function verdictOf(s) {
   if (s.state === 'off') return { text: '공부 모드를 켜면 이 탭부터 판별해요', c: 'var(--ink2)', b: 'var(--soft)' };
   if (s.state === 'away') {
     const at = s.lastInputAt ? new Date(s.lastInputAt) : null;
-    return { text: at ? `마지막 입력 ${pad(at.getHours())}:${pad(at.getMinutes())}까지만 인정했어요` : '입력이 없어 측정을 멈췄어요', c: 'var(--ink2)', b: 'var(--soft)' };
+    return { text: at ? `마지막 입력 ${pad(hourOf(at))}:${pad(at.getMinutes())}까지만 인정했어요` : '입력이 없어 측정을 멈췄어요', c: 'var(--ink2)', b: 'var(--soft)' };
   }
   if (corrected) return { text: `정정됨 · 이 탭은 ${t.kind === 'study' ? '공부' : '딴짓'}로 기억할게요`, c: 'var(--ink)', b: 'var(--yellow-soft)', fix: '정정 취소', undo: true };
   switch (t.kind) {

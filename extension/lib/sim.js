@@ -108,6 +108,7 @@ export function buildLeague({ date, now, demo = true, real = [], school, dept, u
   const map = new Map();
   if (demo) for (const n of SCHOOLS) map.set(n, simSchool(n, date, now));
   for (const u of real) {
+    if (u.counts === false) continue; // 학교 총점에 아직 반영하지 않는 계정 (서버 MIN_ACCOUNT_AGE_HOURS)
     let s = map.get(u.school);
     if (!s) map.set(u.school, (s = { name: u.school, members: 0, score: 0, studying: 0, demo: false }));
     s.members += 1;

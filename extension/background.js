@@ -156,6 +156,27 @@ async function checkFocus() {
   }
 }
 
+/** 자리 비움 상태도 이벤트에만 맡기지 않고 다시 읽음.
+ *  (화면을 잠근 채 브라우저·PC를 다시 켜면 '바뀌었다'는 이벤트가 오지 않아서, 저장돼 있던 'locked'로 계속 멈춰 있거나
+ *   'active'로 저장된 채 입력 없이 흐를 수 있음) */
+async function checkIdle() {
+  const r = rt();
+  let state;
+  try {
+    state = await chrome.idle.queryState(Math.max(15, ST.settings.idleMin * 60));
+  } catch {
+    return;
+  }
+  r.idle = state;
+  if (state === 'active') {
+    r.idleFrom = null;
+    r.lastInputAt = null;
+    r.mediaCapNotified = false;
+  } else {
+    r.idleFrom ||= Date.now() - ST.settings.idleMin * 60 * 1000;
+  }
+}
+
 /** 활성 탭 다시 읽고 판별 */
 async function refreshTab() {
   const r = rt();
@@ -259,6 +280,7 @@ function setup() {
     chrome.idle.setDetectionInterval(Math.max(15, ST.settings.idleMin * 60));
     rt().lastTs = Date.now();
     pruneAiCache();
+    await checkIdle();
     await checkFocus();
     await refreshTab();
     pullToday();
@@ -322,7 +344,8 @@ function adopt(account, origin) {
   pullToday(); // 사이트에서 재던 오늘 기록부터 이어서
 }
 /** 연결 스크립트가 도는 사이트 중 믿을 수 있는 곳: 설정된 서버 주소, 또는 기본 로컬 주소(8787) */
-const trustedSite = (o) => !!o && (o === originOf(ST.settings.serverUrl) || SITE_PORT_ORIGIN.test(o));
+// 기본 로컬 주소(8787)는 서버 주소를 로컬로 쓰고 있을 때만 믿음. 배포 주소로 바꾼 뒤에는 같은 포트에 띄운 다른 과제 서버를 믿지 않음
+const trustedSite = (o) => !!o && (o === originOf(ST.settings.serverUrl) || (SITE_PORT_ORIGIN.test(o) && isLocal(originOf(ST.settings.serverUrl))));
 /** 사이트에 넘기는 상태: 토큰·API 키 같은 설정은 빼고 화면에 필요한 것만 */
 function pageSnapshot() {
   const s = snapshot();
@@ -375,8 +398,10 @@ chrome.idle.onStateChanged.addListener((state) =>
     advance(now);
     const r = rt();
     if (state !== 'active') {
+      // 강의 소리 예외로 재던 중에 화면이 잠긴 경우: 그동안 더한 시간은 이미 인정한 시간이라 되돌리지 않음
+      const wasMedia = r.idle === 'idle' && mediaKeepsGoing(now);
       r.idleFrom ||= now - ST.settings.idleMin * 60 * 1000; // 마지막 입력 시각
-      const keepMedia = state === 'idle' && r.audible && r.kind === 'study';
+      const keepMedia = (state === 'idle' && r.audible && r.kind === 'study') || wasMedia;
       if (!keepMedia) {
         // 마지막 입력 시각 이후 더한 시간을 되돌림
         const cutoff = now - ST.settings.idleMin * 60 * 1000;

@@ -158,3 +158,17 @@ test('보안: 사이트로 보내는 상태에는 API 키·토큰 같은 설정�
   await send({ type: 'set', data: { settings: { ...(await send({ type: 'state' })).settings, aiKey: '' } } });
   await p.close();
 });
+
+test('보안: 서버 주소를 배포 주소로 바꾸면 로컬 8787 페이지는 더 이상 믿지 않음', async () => {
+  const st = await send({ type: 'state' });
+  await send({ type: 'set', data: { settings: { ...st.settings, serverUrl: 'https://build.example.com' } } });
+  try {
+    const p = await openLocal('http://localhost:8787');
+    await sleep(2500);
+    const got = await p.evaluate(() => window.__got);
+    assert.equal(got.filter((m) => m.type === 'status').length, 0, '배포 주소로 바꿨는데 로컬 페이지가 상태를 받음');
+    await p.close();
+  } finally {
+    await send({ type: 'set', data: { settings: { ...st.settings } } });
+  }
+});

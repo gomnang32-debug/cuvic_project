@@ -28,6 +28,11 @@ export const AMBIGUOUS = [
   'namu.wiki', 'chatgpt.com', 'claude.ai', 'gemini.google.com', 'google.com', 'search.naver.com',
   'naver.com', 'daum.net', 'bilibili.com', 'pinterest.com',
 ];
+// 포털은 그 주소 자체(google.com·naver.com·daum.net)만 애매한 곳으로 봄.
+// 하위 도메인(mail.google.com, drive.google.com, mail.naver.com, cafe.naver.com …)은 메일 제목·이메일 주소·파일 이름이
+// 탭 제목에 그대로 들어 있어서, 애매한 곳으로 묶으면 AI 판별로 개인 정보가 밖으로 나감
+const PORTALS = ['google.com', 'naver.com', 'daum.net'];
+const AMBIGUOUS_SUFFIX = AMBIGUOUS.filter((d) => !PORTALS.includes(d));
 
 const STUDY_WORDS = [
   '강의', '강좌', '수업', '공부', '정리', '풀이', '문제', '알고리즘', '자료구조', '시험', '기출', '중간고사', '기말',
@@ -101,8 +106,8 @@ export function classify(url, title, st) {
   const cached = st.aiCache[key];
   if (cached) return { ...base, kind: cached.v, source: cached.by };
 
-  const ambiguous = inList(domain, AMBIGUOUS);
-  // AI에는 애매한 사이트(유튜브 등)의 영상·글 제목만 보냄. 처음 보는 사이트 전부나 검색 결과는 보내지 않음
+  const ambiguous = isAmbiguous(domain);
+  // AI에는 애매한 사이트(유튜브 등)의 영상·글 제목만 보냄. 처음 보는 사이트, 포털의 메일·드라이브 같은 하위 서비스, 검색 결과는 보내지 않음
   if (st.settings.aiKey && ambiguous && !isSearchPage(url)) return { ...base, kind: 'pending', source: 'AI 판별 중', needsAI: true };
 
   const v = titleVerdict(title);
@@ -111,4 +116,4 @@ export function classify(url, title, st) {
   return { ...base, kind: ambiguous ? 'pending' : 'neutral', source: ambiguous ? '판별 보류' : '처음 보는 사이트' };
 }
 
-export const isAmbiguous = (domain) => !!domain && inList(domain, AMBIGUOUS);
+export const isAmbiguous = (domain) => !!domain && (PORTALS.includes(domain) || inList(domain, AMBIGUOUS_SUFFIX));

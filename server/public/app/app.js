@@ -4,7 +4,7 @@
 import { createDash, VIEW_TITLES } from '/lib/dash-core.js';
 import { resolveSchool, searchSchools, ALL_SCHOOLS } from '/lib/schools.js';
 import { DEPTS, ranked, userScore } from '/lib/sim.js';
-import { dateKey, pad, hms, dur, fmtNum, hourOf } from '/lib/util.js';
+import { dateKey, pad, hms, dur, fmtNum, hourOf, ymd } from '/lib/util.js';
 import { weekReport, defaultSemesterStart, TARGET_HOURS } from '/lib/grade.js';
 import { mergeToday, deduct, gross } from '/lib/daysync.js';
 
@@ -66,9 +66,10 @@ window.addEventListener('message', (e) => {
     ext = { present: true, status: m.data, at: Date.now() };
     // 확장 프로그램이 재기 시작하면 웹 타이머는 내려놓음 (두 곳에서 같이 재지 않게)
     if (extLinked() && timer.running) {
-      sendBeat(false); // 지금까지 웹에서 잰 기록을 서버에 남겨야 확장 프로그램이 그 값부터 이어서 잼
       timer.running = false; timer.awaySince = null; saveTimer();
-      if (m.data.state === 'off') postExt('toggle', { on: true }); // 웹에서 켜 둔 공부를 확장 프로그램이 이어받음
+      // 지금까지 웹에서 잰 기록이 서버에 들어간 뒤에 확장 프로그램을 켜야, 확장 프로그램이 그 값부터 이어서 잼
+      const handOff = m.data.state === 'off';
+      sendBeat(false).finally(() => { if (handOff) postExt('toggle', { on: true }); });
     }
     if (was !== extLinked()) render();
   } else if (m.type === 'account' && m.account && !account) {
@@ -149,7 +150,7 @@ function loop() {
     if (isActive() && !timer.checking) {
       if (timer.awaySince) backToTab(now);
       else credit(dt, now);
-    } else leaveTab(now);
+    } else if (!timer.checking) leaveTab(now); // 자리 확인 중에는 시간만 멈추고 이탈로 세지 않음
   }
   timer.lastTs = now;
   const keep = (settings.checkMin + 6) * 60 * 1000; // 자리 확인(25분) + 답 기다림(5분)보다 조금 길게
@@ -166,6 +167,7 @@ function openCheck() {
     clearTimeout(openCheck.t);
     if (noAnswer) undoSinceLastInput();
     timer.checking = false;
+    timer.awaySince = null; // 질문 창이 떠 있던 시간은 탭 이탈이 아님 (답한 뒤 '이탈 1회'로 세지 않게)
     timer.lastInput = Date.now();
     timer.lastTs = Date.now();
     modal(null);
@@ -315,9 +317,9 @@ const BANDS = {
 };
 
 function viewStudy() {
-  const now = new Date();
+  const now = ymd(); // 한국 날짜
   $('#view').innerHTML = `
-  <div class="h1row"><div><div class="sub">${now.getMonth() + 1}월 ${now.getDate()}일 · ${esc(account.school)}</div><div class="h1">오늘의 공부</div></div><div class="sub" id="modeNote"></div></div>
+  <div class="h1row"><div><div class="sub">${now.m}월 ${now.d}일 · ${esc(account.school)}</div><div class="h1">오늘의 공부</div></div><div class="sub" id="modeNote"></div></div>
   <div class="study">
     <div class="card timer-card" id="tcard">
       <div class="chip-state" id="chip"></div>

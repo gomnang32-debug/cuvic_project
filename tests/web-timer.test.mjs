@@ -128,3 +128,14 @@ test('FR4 웹 타이머: "계속 공부하기"를 누르면 그 시간은 그대
   assert.ok(!d.awaySec, '계속을 눌렀는데 뺀 시간이 생김');
   await page.close();
 });
+
+test('FR4 웹 타이머: 자리 확인 창에 늦게 답해도 탭 이탈로 세지 않음', async () => {
+  const page = await openAndJoin('웹늦은답');
+  await page.clock.runFor(25 * 60_000 + 2_000);
+  await page.waitForSelector('#modal:not([hidden])');
+  await page.clock.runFor(60_000); // 1분 뒤에 답함
+  await page.click('#chkYes');
+  await page.clock.runFor(3_000);
+  assert.equal((await todayOf(page)).distractions, 0, '자리 확인 시간이 이탈 1회로 기록됨');
+  await page.close();
+});

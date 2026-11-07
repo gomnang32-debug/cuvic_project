@@ -126,3 +126,20 @@ test('기록 이어받기: 자리 비움으로 뺀 시간을 서버의 예전 �
   assert.equal(mergeToday(local, other), true);
   assert.deepEqual([local.focusSec, local.awaySec], [1200, 60]);
 });
+
+test('AI 판별: 포털의 메일·드라이브·카페 같은 하위 서비스 제목은 보내지 않음', async () => {
+  const { isAmbiguous } = await import('../extension/lib/rules.js');
+  const s = st({ settings: { serverUrl: 'http://localhost:8787', aiKey: 'sk-test' } });
+  for (const u of ['https://mail.google.com/mail/u/0/#inbox/a', 'https://drive.google.com/drive/my-drive', 'https://calendar.google.com/', 'https://mail.naver.com/v2/read/0/1', 'https://cafe.naver.com/x/1']) {
+    assert.equal(classify(u, '[교수님] 성적 정정 요청 - me@example.com', s).needsAI, undefined, u);
+  }
+  assert.equal(isAmbiguous('google.com'), true);
+  assert.equal(isAmbiguous('m.blog.naver.com'), true);
+  assert.equal(isAmbiguous('x.tistory.com'), true);
+  assert.equal(isAmbiguous('mail.google.com'), false);
+});
+
+test('KST 표시: 화면에 보여 주는 날짜도 한국 날짜', async () => {
+  const { ymd } = await import('../extension/lib/util.js');
+  assert.deepEqual(ymd(Date.UTC(2026, 10, 6, 15, 30)), { y: 2026, m: 11, d: 7 });
+});

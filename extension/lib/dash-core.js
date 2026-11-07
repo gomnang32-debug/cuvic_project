@@ -1,5 +1,7 @@
 // 대시보드 화면 (내 기록 · 대항전 · 캠퍼스) — 확장 프로그램과 사이트가 같이 씀
-import { dateKey, addDays, pad, dur, fmtNum, hms, clock, weekdayOf, kstMidnight } from './util.js';
+import { dateKey, addDays, pad, dur, fmtNum, hms, clock, weekdayOf, kstMidnight, ymd, hourOf } from './util.js';
+// 날짜는 한국 시간으로 표시 (주·날짜 계산과 같은 기준)
+const md = (t) => { const x = ymd(t); return `${x.m}/${x.d}`; };
 import { weekReport, finalizedWeeks, gpa, semesterWeek, TARGET_HOURS } from './grade.js';
 import { ranked, userScore } from './sim.js';
 
@@ -111,7 +113,7 @@ export function createDash(opts) {
 
     return `
     <div class="h1row">
-      <div><div class="sub">${now.getMonth() + 1 === end.getMonth() + 1 ? '' : ''}${w.start.getMonth() + 1}월 ${w.start.getDate()}일 – ${end.getMonth() + 1}월 ${end.getDate()}일 · ${sw > 0 ? sw + '주차' : '개강 전'}</div><div class="h1">이번 주 공사 현황</div></div>
+      <div><div class="sub">${ymd(w.start).m}월 ${ymd(w.start).d}일 – ${ymd(end).m}월 ${ymd(end).d}일 · ${sw > 0 ? sw + '주차' : '개강 전'}</div><div class="h1">이번 주 공사 현황</div></div>
       <div class="sub">학점은 월요일 0시에 확정돼요</div>
     </div>
     <div class="grid3">
@@ -126,7 +128,7 @@ export function createDash(opts) {
         <div class="lbl">통산 GPA</div>
         <div style="display:flex;align-items:baseline;gap:8px"><span class="kpi">${g == null ? '–' : g.toFixed(2)}</span><span class="sub" style="font-size:15px">/ 4.5</span></div>
         <div style="font-size:14px;color:var(--ink2)">${weeks.length ? `확정된 ${weeks.length}주 평균 · 순공 0분인 주는 빼요` : '첫 학점은 다음 주 월요일에 확정돼요'}</div>
-        <div class="chips" style="margin-top:20px">${weeks.slice(-8).map((x) => `<span class="chip" title="${x.start.getMonth() + 1}/${x.start.getDate()} 주 · ${x.hours.toFixed(1)}시간" style="background:${x.grade[0] === 'A' ? 'var(--inv)' : 'var(--soft)'};color:${x.grade[0] === 'A' ? 'var(--yellow)' : 'var(--ink)'};border:1px solid ${x.grade[0] === 'A' ? 'var(--inv-line)' : 'transparent'}">${x.grade}</span>`).join('')}</div>
+        <div class="chips" style="margin-top:20px">${weeks.slice(-8).map((x) => `<span class="chip" title="${md(x.start)} 주 · ${x.hours.toFixed(1)}시간" style="background:${x.grade[0] === 'A' ? 'var(--inv)' : 'var(--soft)'};color:${x.grade[0] === 'A' ? 'var(--yellow)' : 'var(--ink)'};border:1px solid ${x.grade[0] === 'A' ? 'var(--inv-line)' : 'transparent'}">${x.grade}</span>`).join('')}</div>
       </div>
       <div class="panel col">
         <div class="lbl">오늘 순공</div>
@@ -267,7 +269,7 @@ export function createDash(opts) {
         </div>
         <div class="panel">
           <div class="ph"><h2>실시간 소식</h2></div>
-          <div class="feed">${events.length ? events.map((e) => { const d = new Date(e.t); return `<div class="e"><span class="t">${pad(d.getHours())}:${pad(d.getMinutes())}</span><span><b>${esc(e.school)}</b> ${esc(e.text)}</span></div>`; }).join('') : '<div class="empty">조용하네요. 먼저 치고 나가 볼까요?</div>'}</div>
+          <div class="feed">${events.length ? events.map((e) => { const d = new Date(e.t); return `<div class="e"><span class="t">${pad(hourOf(e.t))}:${pad(d.getMinutes())}</span><span><b>${esc(e.school)}</b> ${esc(e.text)}</span></div>`; }).join('') : '<div class="empty">조용하네요. 먼저 치고 나가 볼까요?</div>'}</div>
         </div>
       </div>
     </div>
@@ -299,7 +301,7 @@ export function createDash(opts) {
         <div class="ph"><h2>층별 기록</h2><span class="sub">${weeks.length}층</span></div>
         <div class="wk" style="color:var(--muted);font-size:12px"><span>주</span><span>순공</span><span>점수</span><span>학점</span></div>
         <div class="wk" style="background:var(--yellow-soft);border-radius:8px;padding-left:8px"><span>이번 주 (공사 중)</span><span>${w.hours.toFixed(1)}시간</span><span class="mono">${w.total}</span><span class="mono">${w.grade}</span></div>
-        ${weeks.slice().reverse().map((x) => `<div class="wk"><span>${x.start.getMonth() + 1}/${x.start.getDate()} 주</span><span>${x.hours.toFixed(1)}시간</span><span class="mono">${x.total}</span><span class="mono">${x.grade}</span></div>`).join('') || '<div class="empty">아직 확정된 주가 없어요. 이번 주를 마치면 첫 층이 올라가요.</div>'}
+        ${weeks.slice().reverse().map((x) => `<div class="wk"><span>${md(x.start)} 주</span><span>${x.hours.toFixed(1)}시간</span><span class="mono">${x.total}</span><span class="mono">${x.grade}</span></div>`).join('') || '<div class="empty">아직 확정된 주가 없어요. 이번 주를 마치면 첫 층이 올라가요.</div>'}
       </div>
     </div>`;
   }

@@ -153,3 +153,54 @@ test('자리 비움: 뺀 시간을 부풀려도 측정 총시간 상한은 그�
   assert.ok(d.focusSec + d.awaySec <= 60 + 95, `총시간이 ${d.focusSec + d.awaySec}초`);
   assert.ok(d.focusSec <= 60);
 });
+
+test('가입 횟수 제한: x-forwarded-for 앞부분을 바꿔도 프록시가 붙인 실제 IP로 셈', async () => {
+  const lim = await startServer({ env: { TRUST_PROXY: '1', REGISTER_LIMIT: '2' } });
+  try {
+    const go = (xff) => fetch(lim.url + '/api/register', { method: 'POST', headers: { 'content-type': 'application/json', 'x-forwarded-for': xff }, body: JSON.stringify({ school: '충북대', nickname: 'x' }) }).then((r) => r.status);
+    const codes = [];
+    for (let i = 1; i <= 4; i++) codes.push(await go(`10.0.0.${i}, 1.2.3.4`)); // 실제 IP는 마지막 1.2.3.4
+    assert.deepEqual(codes, [200, 200, 429, 429]);
+    assert.equal(await go('5.6.7.8'), 200, '다른 실제 IP는 따로 셈');
+  } finally {
+    await lim.stop();
+  }
+});
+
+test('하루 상한: 1인 하루 순공은 DAY_CAP_HOURS를 넘지 않음', async () => {
+  const cap = await startServer({ env: { DAY_CAP_HOURS: '0.01' } }); // 36초
+  try {
+    const u = (await api(cap.url, '/api/register', { school: '충북대', nickname: 'cap' })).json;
+    await api(cap.url, '/api/heartbeat', { userId: u.userId, token: u.token, date: todayKey(), focusSec: 80 });
+    const d = (await api(cap.url, '/api/me', { userId: u.userId, token: u.token })).json.days[todayKey()];
+    assert.ok(d.focusSec <= 36, `상한을 넘음: ${d.focusSec}초`);
+  } finally {
+    await cap.stop();
+  }
+});
+
+test('신규 계정: MIN_ACCOUNT_AGE_HOURS 동안은 순위 목록에만 보이고 학교 총점에는 안 들어감', async () => {
+  const s2 = await startServer({ env: { MIN_ACCOUNT_AGE_HOURS: '1' } });
+  try {
+    const u = (await api(s2.url, '/api/register', { school: '충북대', nickname: '새계정' })).json;
+    await api(s2.url, '/api/heartbeat', { userId: u.userId, token: u.token, date: todayKey(), focusSec: 60 });
+    const lg = (await api(s2.url, '/api/league?userId=' + u.userId)).json;
+    const me = lg.schools.find((x) => x.name === '충북대학교');
+    assert.equal(me?.score || 0, 0, '신규 계정 점수가 학교 총점에 들어감');
+    assert.ok(lg.users.some((x) => x.nickname === '새계정' && x.score > 0), '순위 목록에 안 보임');
+  } finally {
+    await s2.stop();
+  }
+});
+
+test('출처별 기록: 사이트에서 뺀 시간이 확장 프로그램이 잰 순공을 깎지 않음', async () => {
+  const u = (await join('충북대학교', '두출처')).json;
+  await beat(u, { via: 'ext', focusSec: 60, awaySec: 0 });
+  await beat(u, { via: 'web', focusSec: 10, awaySec: 30 });
+  const d = (await api(srv.url, '/api/me', { userId: u.userId, token: u.token })).json.days[todayKey()];
+  assert.equal(d.focusSec, 60);
+  // 두 곳이 같은 시간을 잰 경우에도 더하지 않음
+  await beat(u, { via: 'web', focusSec: 60, awaySec: 30 });
+  const d2 = (await api(srv.url, '/api/me', { userId: u.userId, token: u.token })).json.days[todayKey()];
+  assert.ok(d2.focusSec <= 60 + 2, `두 출처가 더해짐: ${d2.focusSec}초`);
+});

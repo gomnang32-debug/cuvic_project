@@ -5,6 +5,7 @@
 //   사이트:  http://localhost:8787   (공부 타이머 · 내 기록 · 대항전 · 캠퍼스)
 //   학교 등록 요청 관리: http://localhost:8787/admin  (이 PC에서만, 또는 ADMIN_KEY 설정 시 /admin?key=…)
 //   인터넷 배포: HOST=0.0.0.0, PORT=(호스팅이 정함), DATA_DIR=(영구 디스크 경로), ADMIN_KEY=(관리 비밀번호)
+//   조작 방지: TRUST_PROXY=1(프록시 뒤), REGISTER_LIMIT=20, DAY_CAP_HOURS=16, MIN_ACCOUNT_AGE_HOURS=0 (README 참고)
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -22,6 +23,10 @@ const DB_FILE = path.join(process.env.DATA_DIR || path.join(DIR, 'data'), 'db.js
 const ADMIN_KEY = process.env.ADMIN_KEY || '';
 const TRUST_PROXY = process.env.TRUST_PROXY === '1'; // Render처럼 프록시 뒤에서 돌 때만 x-forwarded-for를 믿음
 const REGISTER_LIMIT = Number(process.env.REGISTER_LIMIT || 20); // IP 하나당 1시간에 가입 가능한 계정 수
+const DAY_CAP = Number(process.env.DAY_CAP_HOURS || 16) * 3600; // 1인 하루 순공 상한 (사람이 실제로 할 수 있는 만큼)
+// 가입 후 이 시간이 지난 계정만 학교 총점에 더함 (0이면 바로 반영). 계정을 잔뜩 만들어 학교 점수를 올리는 것을 막음.
+// 대회 시연처럼 가입하자마자 학교 점수에 들어가야 할 때는 0으로 두고, 실제 운영 때 24 정도로 켬
+const MIN_ACCOUNT_AGE = Number(process.env.MIN_ACCOUNT_AGE_HOURS || 0) * 3600 * 1000;
 const ROOT = path.join(DIR, '..');
 const STATIC = [
   // [URL 접두어, 실제 폴더]  — 사이트는 확장 프로그램과 같은 라이브러리·스타일을 그대로 씀
@@ -100,7 +105,8 @@ function realUsers(date, now) {
     .filter(([id]) => db.users[id] && db.users[id].ranking !== false && schoolStatus(db.users[id].school) === 'ok')
     .map(([id, d]) => {
       const u = db.users[id];
-      return { id, school: u.school, dept: u.dept, nickname: u.nickname, focusSec: d.focusSec, score: userScore(d.focusSec, d.combos), studying: d.studying && now - d.lastSeen < STUDYING_TTL };
+      const counts = now - (u.createdAt || 0) >= MIN_ACCOUNT_AGE; // false면 순위 목록에는 보이지만 학교 총점에는 안 들어감
+      return { id, school: u.school, dept: u.dept, nickname: u.nickname, focusSec: d.focusSec, score: userScore(d.focusSec, d.combos), studying: d.studying && now - d.lastSeen < STUDYING_TTL, counts };
     });
 }
 
@@ -161,18 +167,31 @@ function auth(b) {
 const joins = new Map(); // ip → [가입 시각…]
 function joinAllowed(ip, now = Date.now()) {
   const recent = (joins.get(ip) || []).filter((t) => now - t < 3600 * 1000);
-  if (recent.length >= REGISTER_LIMIT) return false;
+  if (recent.length >= REGISTER_LIMIT) {
+    joins.set(ip, recent);
+    return false;
+  }
   recent.push(now);
   joins.set(ip, recent);
   return true;
 }
+// 1시간 넘게 가입이 없는 IP는 지워서 목록이 끝없이 커지지 않게 함
+setInterval(() => {
+  const now = Date.now();
+  for (const [ip, ts] of joins) if (!ts.some((t) => now - t < 3600 * 1000)) joins.delete(ip);
+}, 10 * 60 * 1000).unref();
 function clientIp(req) {
-  if (TRUST_PROXY && req.headers['x-forwarded-for']) return String(req.headers['x-forwarded-for']).split(',')[0].trim();
+  // x-forwarded-for의 앞쪽 값은 접속한 사람이 마음대로 적을 수 있음. 믿을 수 있는 건 프록시(Render)가 붙인 맨 마지막 값뿐
+  const xff = TRUST_PROXY && req.headers['x-forwarded-for'];
+  if (xff) {
+    const last = String(xff).split(',').map((s) => s.trim()).filter(Boolean).at(-1);
+    if (last) return last;
+  }
   return req.socket.remoteAddress || '?';
 }
 
 // ---------- 기록 상한 ----------
-// 늘어난 순공은 '지난 보고 이후 실제로 흐른 시간'까지만 인정. 통신 지연을 감안한 여유(GRACE)는
+// 늘어난 측정 시간은 '그 출처의 지난 보고 이후 실제로 흐른 시간'까지만 인정. 통신 지연을 감안한 여유(GRACE)는
 // 요청마다 새로 생기지 않고 잔고처럼 쓰면 줄고, 흐른 시간의 10%씩만 다시 찬다.
 // (예전에는 요청마다 +90초가 붙어서 1초에 한 번 보내면 1초에 91초씩 늘릴 수 있었음)
 const GRACE = 90;
@@ -223,23 +242,35 @@ const routes = {
     // 오늘 첫 보고면 (한국 시간) 자정 이후 흐른 시간까지 인정 (서버가 꺼져 있던 동안의 공부도 반영)
     // 단, 가입하기 전 시간은 인정하지 않음
     const start = Math.max(kstMidnight(now), u.createdAt || 0);
-    const prev = day[b.userId] || { focusSec: 0, awaySec: 0, combos: 0, distractions: 0, lastSeen: start, studying: false, grace: GRACE };
-    // 측정한 총시간(gross) = 순공 + 자리 비움으로 뺀 시간. 둘 다 줄어들지 않는 값이라 상한을 그대로 걸 수 있음.
-    // 순공 = 총시간 − 뺀 시간 → 자리 비움을 나중에 알아채고 뺀 시간도 서버 기록에서 빠짐
+    const old = day[b.userId];
+    const prev = old || { focusSec: 0, awaySec: 0, combos: 0, distractions: 0, lastSeen: start, studying: false };
     const num = (x) => Math.max(0, Number(x) || 0);
-    const prevAway = prev.awaySec || 0;
-    const prevGross = prev.focusSec + prevAway;
-    const grace = prev.grace ?? GRACE;
-    const elapsed = Math.max(0, now - prev.lastSeen) / 1000;
-    const want = Math.min(num(b.focusSec), 86400) + num(b.awaySec) - prevGross;
-    const inc = Math.max(0, Math.min(want, elapsed + grace));
-    const nextGrace = Math.min(GRACE, grace - Math.max(0, inc - elapsed) + elapsed * 0.1);
-    const gross = prevGross + inc;
-    const awaySec = Math.min(gross, Math.max(prevAway, num(b.awaySec)));
-    const focusSec = Math.min(86400, gross - awaySec);
+    const via = b.via === 'ext' ? 'ext' : 'web';
+    // 기록은 측정한 곳(확장 프로그램 / 사이트)별로 따로 둠. 예전 형식(출처 구분 없음)은 그때의 출처 하나로 옮김.
+    // 출처마다: 측정한 총시간(gross) = 순공 + 자리 비움으로 뺀 시간(away). 둘 다 줄어들지 않는 값이라 상한을 걸 수 있고,
+    // 순공 = 총시간 − 뺀 시간 이라서 자리 비움을 나중에 알아채고 뺀 시간도 서버 기록에서 빠짐.
+    const src = old?.src
+      ? { ...old.src }
+      : old ? { [old.via || 'web']: { gross: old.focusSec + (old.awaySec || 0), away: old.awaySec || 0, lastSeen: old.lastSeen, grace: old.grace ?? GRACE } } : {};
+    const s0 = src[via] || { gross: 0, away: 0, lastSeen: start, grace: GRACE };
+    const elapsed = Math.max(0, now - s0.lastSeen) / 1000;
+    const want = Math.min(num(b.focusSec), DAY_CAP) + num(b.awaySec) - s0.gross;
+    const inc = Math.max(0, Math.min(want, elapsed + s0.grace));
+    const grace = Math.min(GRACE, s0.grace - Math.max(0, inc - elapsed) + elapsed * 0.1);
+    const gross = s0.gross + inc;
+    src[via] = { gross, away: Math.min(gross, Math.max(s0.away, num(b.awaySec))), lastSeen: now, grace };
+    // 오늘 순공 = 출처 중 순공이 가장 큰 쪽. 두 곳이 같은 시간을 재도 더하지 않고, 한쪽에서 뺀 시간이 다른 쪽 기록을 깎지도 않음
+    let best = null;
+    for (const x of Object.values(src)) {
+      const net = Math.min(DAY_CAP, x.gross - x.away);
+      if (!best || net > best.net) best = { net, away: x.away };
+    }
+    const focusSec = best.net, awaySec = best.away;
     // 콤보는 순공으로 가능한 개수까지만 (자리 비움으로 순공이 줄면 그 시간에 쌓인 콤보도 빠짐)
     const combos = Math.min(Math.floor(focusSec / 1500), Math.max(prev.combos, num(b.combos)));
-    if (combos > prev.combos) pushEvent(date, u.school, `${u.nickname}님이 25분 집중 콤보 달성 · +${(combos - prev.combos) * 5}점`);
+    // 소식은 오늘 최고 콤보 수를 넘을 때만 (자리 비움으로 줄었다가 다시 채운 콤보는 다시 알리지 않음)
+    const topCombos = Math.max(prev.topCombos ?? prev.combos, combos);
+    if (combos > (prev.topCombos ?? prev.combos)) pushEvent(date, u.school, `${u.nickname}님이 25분 집중 콤보 달성 · +${(combos - (prev.topCombos ?? prev.combos)) * 5}점`);
     if (b.studying && !prev.studying) pushEvent(date, u.school, `${u.nickname}님이 공부 모드를 켰어요`);
     // 시간대별 순공 (0~23시, 초). 합이 순공보다 크면 비율로 줄임
     let hours = Array.isArray(b.hours) && b.hours.length === 24 ? b.hours.map((x) => Math.max(0, Number(x) || 0)) : prev.hours;
@@ -248,7 +279,7 @@ const routes = {
       if (sum > focusSec + 60) hours = hours.map((x) => (x * focusSec) / sum);
       hours = hours.map((x) => Math.round(x));
     }
-    day[b.userId] = { focusSec, awaySec, combos, distractions: Math.max(0, Math.min(999, Number(b.distractions) || 0)), studying: !!b.studying, lastSeen: now, grace: nextGrace, hours, via: b.via === 'ext' ? 'ext' : 'web' };
+    day[b.userId] = { focusSec, awaySec, combos, topCombos, distractions: Math.max(0, Math.min(999, Number(b.distractions) || 0)), studying: !!b.studying, lastSeen: now, hours, via, src };
     checkOvertakes(date);
     save();
     return { ok: true, score: userScore(focusSec, combos) };
